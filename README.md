@@ -46,7 +46,7 @@ Current release: **[v0.1.1](https://github.com/0xfnzero/stream-bridge/releases/t
 <a id="installation"></a>
 ## Script installation
 
-Linux (glibc 2.35+) and macOS, x86_64 / arm64. The installer selects a prebuilt binary; users do not need Rust. Alpine/musl is not covered by these binaries.
+Prebuilt server packages are provided for **Linux x86_64 / arm64 (glibc 2.35+)**. The installer selects the matching binary; users do not need Rust. macOS and Alpine/musl binaries are not included in v0.1.1 or later releases.
 
 On receiver B:
 
@@ -112,7 +112,7 @@ sudo systemctl restart stream-bridge-server
 sudo journalctl -u stream-bridge-server -f
 ```
 
-The service runs as the invoking sudo user and reads `.bridge-token`. Foreground `./run.sh` works on both Linux and macOS; stop it with Ctrl+C.
+The service runs as the invoking sudo user and reads `.bridge-token`. Use `./run.sh` for foreground execution and Ctrl+C to stop.
 
 <a id="private-network"></a>
 ## Private networks
@@ -166,7 +166,7 @@ Rust can embed the receiver inside a Bot process. Go and TypeScript clients conn
 - `clients/go/`, `clients/typescript/`: clients and runnable examples.
 - `examples/`: Rust receiver and embedded-Bot examples.
 - `install.sh`, `setup.sh`, `run.sh`: installation, initialization, startup.
-- `.github/workflows/`: tests, four-platform releases, client publication.
+- `.github/workflows/`: tests, Linux x86_64 / arm64 releases, client publication.
 
 ```bash
 cargo test --all-features --locked

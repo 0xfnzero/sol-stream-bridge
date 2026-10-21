@@ -46,7 +46,7 @@
 <a id="installation"></a>
 ## 脚本安装
 
-Linux（glibc 2.35+）和 macOS，支持 x86_64 / arm64。安装脚本自动选择平台，不需要自行安装 Rust 或编译。Linux musl/Alpine 不包含在预编译包中。
+服务端预编译包仅提供 **Linux x86_64 / arm64（glibc 2.35+）**。安装脚本自动选择对应架构，不需要安装 Rust 或自行编译。v0.1.1 及后续版本不提供 macOS 和 Alpine/musl 二进制包。
 
 ```bash
 curl -fsSL -o install.sh https://github.com/0xfnzero/stream-bridge/releases/latest/download/install.sh
@@ -132,7 +132,7 @@ sudo systemctl restart stream-bridge-server
 sudo journalctl -u stream-bridge-server -f
 ```
 
-服务默认使用执行 sudo 的用户，令牌从 `.bridge-token` 加载。普通 `./run.sh` 前台运行适用于 Linux/macOS；Ctrl+C 退出。
+服务默认使用执行 sudo 的用户，令牌从 `.bridge-token` 加载。使用 `./run.sh` 前台运行，Ctrl+C 退出。
 
 <a id="private-network"></a>
 ## 内网转发
@@ -190,7 +190,7 @@ Rust 支持将桥接接收端嵌入 Bot；Go/TS 客户端连接已运行的 Rust
 - `clients/go/`、`clients/typescript/`：Go / TypeScript 客户端及示例。
 - `examples/`：Rust 接收与内嵌 Bot 示例。
 - `install.sh`、`setup.sh`、`run.sh`：安装、初始化与启动。
-- `.github/workflows/`：测试、四平台二进制构建、客户端发布。
+- `.github/workflows/`：测试、Linux x86_64 / arm64 二进制构建、客户端发布。
 
 ```bash
 cargo test --all-features --locked
