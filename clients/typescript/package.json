@@ -33,10 +33,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/0xfnzero/stream-bridge.git",
+    "url": "git+https://github.com/0xfnzero/sol-stream-bridge.git",
     "directory": "clients/typescript"
   },
-  "homepage": "https://github.com/0xfnzero/stream-bridge",
+  "homepage": "https://github.com/0xfnzero/sol-stream-bridge",
   "files": [
     "dist/src/",
     "dist/examples/",

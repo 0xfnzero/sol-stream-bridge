@@ -35,4 +35,4 @@ Run the packaged example with a configured `client.toml` and a live bridge recei
 cargo run --example receive_client --features yellowstone -- client.toml
 ```
 
-[English guide](https://github.com/0xfnzero/stream-bridge/blob/main/clients/README.md) · [中文指南](https://github.com/0xfnzero/stream-bridge/blob/main/clients/README_CN.md)
+[English guide](https://github.com/0xfnzero/sol-stream-bridge/blob/main/clients/README.md) · [中文指南](https://github.com/0xfnzero/sol-stream-bridge/blob/main/clients/README_CN.md)

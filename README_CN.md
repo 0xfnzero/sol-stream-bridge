@@ -1,24 +1,27 @@
 <div align="center">
-  <h1>Stream Bridge</h1>
+  <h1>Sol Stream Bridge</h1>
   <p>Solana Shred 与 Yellowstone gRPC 转发桥接，支持 Rust、Go、TypeScript Bot</p>
-  <a href="https://github.com/0xfnzero/stream-bridge/releases"><img src="https://img.shields.io/github/v/release/0xfnzero/stream-bridge" alt="GitHub Release"></a>
+  <a href="https://github.com/0xfnzero/sol-stream-bridge/releases"><img src="https://img.shields.io/github/v/release/0xfnzero/sol-stream-bridge" alt="GitHub Release"></a>
   <a href="https://crates.io/crates/stream-bridge-client"><img src="https://img.shields.io/crates/v/stream-bridge-client.svg" alt="Rust client"></a>
   <a href="https://www.npmjs.com/package/stream-bridge-client"><img src="https://img.shields.io/npm/v/stream-bridge-client.svg" alt="TypeScript client"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </div>
 
 <p align="center">
+  <a href="https://fnzero.dev">官网</a> ·
   <a href="README.md">English</a> · <a href="README_CN.md">中文</a> ·
   <a href="clients/README_CN.md">Bot 客户端</a> ·
   <a href="docs/DEPLOYMENT_CN.md">部署说明</a> ·
   <a href="RELEASE_NOTES.md">发布说明</a>
 </p>
 
-将自己机器上的原始 Shred、Jito proxy UDP 输出和 Yellowstone gRPC 提供给另一台服务器。一个进程支持同时转发 Shred 和 gRPC，也可以分别启用；可通过公网或互通私网连接，Bot 通过客户端直接读取数据。
+**Sol Stream Bridge** 是使用 Rust 实现的 Solana Shred UDP 与 Yellowstone gRPC 转发桥。支持 Jito ShredStream proxy 的 UDP 输出、直接推送到 IP+端口的原始 Shred，以及 Yellowstone Geyser 订阅流。一个进程可同时转发 Shred 和 gRPC，也可分别启用；通过公网或互通私网连接，Rust、Go、TypeScript Bot 客户端直接接收原始数据包和解码后的消息。
 
 **服务端：** `stream-bridge-server` · **Bot 客户端（Rust/npm）：** `stream-bridge-client` · **Go：** `github.com/0xfnzero/stream-bridge/clients/go`
 
-当前版本：**[v0.1.1](https://github.com/0xfnzero/stream-bridge/releases/tag/v0.1.1)**。服务端与三语言 Bot 客户端统一为 **0.1.1**，修复内容及升级说明见 [发布说明](RELEASE_NOTES.md)。
+Go 保留已发布版本的原始 module 路径，安装和 import 按下方示例执行。
+
+当前版本：**[v0.1.1](https://github.com/0xfnzero/sol-stream-bridge/releases/tag/v0.1.1)**。服务端与三语言 Bot 客户端统一为 **0.1.1**，修复内容及升级说明见 [发布说明](RELEASE_NOTES.md)。
 
 ## 目录
 
@@ -49,7 +52,7 @@
 服务端预编译包仅提供 **Linux x86_64 / arm64（glibc 2.35+）**。安装脚本自动选择对应架构，不需要安装 Rust 或自行编译。v0.1.1 及后续版本不提供 macOS 和 Alpine/musl 二进制包。
 
 ```bash
-curl -fsSL -o install.sh https://github.com/0xfnzero/stream-bridge/releases/latest/download/install.sh
+curl -fsSL -o install.sh https://github.com/0xfnzero/sol-stream-bridge/releases/latest/download/install.sh
 chmod +x install.sh
 # 目标服务器 B：生成 receiver 配置、令牌和自签 TLS 证书
 ROLE=receiver ./install.sh

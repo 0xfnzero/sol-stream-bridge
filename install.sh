@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-REPO="${REPO:-0xfnzero/stream-bridge}"
+REPO="${REPO:-0xfnzero/sol-stream-bridge}"
 VERSION="${VERSION:-latest}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/stream-bridge}"
 ROLE="${ROLE:-source}"

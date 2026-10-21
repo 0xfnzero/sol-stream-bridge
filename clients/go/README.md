@@ -10,4 +10,4 @@ Import as `bridge "github.com/0xfnzero/stream-bridge/clients/go"`.
 
 Runnable example: `go run ./examples/receive ../client.toml` from the repository's `clients/go` directory.
 
-[English integration guide](https://github.com/0xfnzero/stream-bridge/blob/main/clients/README.md) · [中文指南](https://github.com/0xfnzero/stream-bridge/blob/main/clients/README_CN.md)
+[English integration guide](https://github.com/0xfnzero/sol-stream-bridge/blob/main/clients/README.md) · [中文指南](https://github.com/0xfnzero/sol-stream-bridge/blob/main/clients/README_CN.md)

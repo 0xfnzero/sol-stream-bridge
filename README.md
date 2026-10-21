@@ -1,24 +1,27 @@
 <div align="center">
-  <h1>Stream Bridge</h1>
+  <h1>Sol Stream Bridge</h1>
   <p>Solana Shred and Yellowstone gRPC forwarding with Rust, Go and TypeScript bot clients</p>
-  <a href="https://github.com/0xfnzero/stream-bridge/releases"><img src="https://img.shields.io/github/v/release/0xfnzero/stream-bridge" alt="GitHub Release"></a>
+  <a href="https://github.com/0xfnzero/sol-stream-bridge/releases"><img src="https://img.shields.io/github/v/release/0xfnzero/sol-stream-bridge" alt="GitHub Release"></a>
   <a href="https://crates.io/crates/stream-bridge-client"><img src="https://img.shields.io/crates/v/stream-bridge-client.svg" alt="Rust client"></a>
   <a href="https://www.npmjs.com/package/stream-bridge-client"><img src="https://img.shields.io/npm/v/stream-bridge-client.svg" alt="TypeScript client"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </div>
 
 <p align="center">
+  <a href="https://fnzero.dev">Website</a> ·
   <a href="README.md">English</a> · <a href="README_CN.md">中文</a> ·
   <a href="clients/README.md">Bot clients</a> ·
   <a href="docs/DEPLOYMENT.md">Deployment</a> ·
   <a href="RELEASE_NOTES.md">Releases</a>
 </p>
 
-Forward your machine's raw Solana Shred, Jito proxy UDP output and Yellowstone gRPC to another server. Run UDP and gRPC together or separately, over public or reachable private networks. Bots consume raw packets and decoded Yellowstone updates through dedicated clients.
+**Sol Stream Bridge** is a Rust forwarding bridge for Solana Shred UDP and Yellowstone gRPC streams. Forward Jito ShredStream proxy output, raw Shred sent to an IP and port, and Yellowstone Geyser subscriptions to another server. Run Shred and gRPC together or separately over public or reachable private networks; Rust, Go and TypeScript bot SDKs deliver raw packets and decoded updates to your trading bot.
 
 **Server:** `stream-bridge-server` · **Bot SDK (Rust/npm):** `stream-bridge-client` · **Go module:** `github.com/0xfnzero/stream-bridge/clients/go`
 
-Current release: **[v0.1.1](https://github.com/0xfnzero/stream-bridge/releases/tag/v0.1.1)**. Server binaries and all three Bot clients use version **0.1.1**. See [release notes](RELEASE_NOTES.md) for fixes and upgrade instructions.
+Go imports retain the original module path for compatibility with published versions.
+
+Current release: **[v0.1.1](https://github.com/0xfnzero/sol-stream-bridge/releases/tag/v0.1.1)**. Server binaries and all three Bot clients use version **0.1.1**. See [release notes](RELEASE_NOTES.md) for fixes and upgrade instructions.
 
 ## Contents
 
@@ -51,7 +54,7 @@ Prebuilt server packages are provided for **Linux x86_64 / arm64 (glibc 2.35+)**
 On receiver B:
 
 ```bash
-curl -fsSL -o install.sh https://github.com/0xfnzero/stream-bridge/releases/latest/download/install.sh
+curl -fsSL -o install.sh https://github.com/0xfnzero/sol-stream-bridge/releases/latest/download/install.sh
 chmod +x install.sh
 ROLE=receiver ./install.sh
 cd "$HOME/stream-bridge"
