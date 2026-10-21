@@ -39,7 +39,7 @@ Install from crates.io:
 
 ```toml
 [dependencies]
-stream-bridge-client = { version = "0.1.0", features = ["yellowstone"] }
+stream-bridge-client = { version = "0.1.1", features = ["yellowstone"] }
 ```
 
 For local development use `path = "../stream-bridge/clients/rust"` instead of `version`. Main APIs:
@@ -60,7 +60,7 @@ Only raw Shred is needed? Omit the optional `yellowstone` feature. The regular b
 Go 1.24+. Install the versioned Go module:
 
 ```bash
-go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.0
+go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.1
 ```
 
 ```go
@@ -82,14 +82,14 @@ defer sub.Close()
 
 Select over `shreds.Packets`, `shreds.Errors` and `ctx.Done()`. `packet.Data` is the original payload. In one separate goroutine call `sub.Recv()` to get protobuf updates; `GetTransaction()`, `GetAccount()`, `GetSlot()` expose data. `UpdateFilters(*proto.SubscribeRequest)` supports full native filters and serializes sends. Cancel context or call Close to stop. Full example: [receive/main.go](go/examples/receive/main.go).
 
-For local development use a Go `replace` directive pointing `github.com/0xfnzero/stream-bridge/clients/go` at the local `clients/go` directory. Go publication uses a Git tag (`clients/go/v0.1.0`), not an npm-style package upload.
+For local development use a Go `replace` directive pointing `github.com/0xfnzero/stream-bridge/clients/go` at the local `clients/go` directory. Go publication uses a Git tag (`clients/go/v0.1.1`), not an npm-style package upload.
 
 ## TypeScript integration
 
 Node.js 20+:
 
 ```bash
-npm install stream-bridge-client
+npm install stream-bridge-client@0.1.1
 ```
 
 For local development, build `clients/typescript` with `npm ci && npm run build`, then run `npm install /absolute/path/stream-bridge/clients/typescript` in your Bot project.

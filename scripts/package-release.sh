@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 target="${TARGET:-$(rustc -vV | awk '/^host:/ {print $2}')}"
-version="${VERSION:-v0.1.0}"
+version="${VERSION:-v0.1.1}"
 if [[ "${SKIP_BUILD:-0}" != 1 ]]; then cargo build --release --locked --target "$target"; fi
 binary="${BINARY:-target/$target/release/stream-bridge-server}"
 [[ -x "$binary" ]] || { echo "Missing binary: $binary" >&2; exit 1; }

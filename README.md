@@ -18,7 +18,7 @@ Forward your machine's raw Solana Shred, Jito proxy UDP output and Yellowstone g
 
 **Server:** `stream-bridge-server` · **Bot SDK (Rust/npm):** `stream-bridge-client` · **Go module:** `github.com/0xfnzero/stream-bridge/clients/go`
 
-Source version: **0.1.0**. See [release notes](RELEASE_NOTES.md) for package publication status.
+Current release: **[v0.1.1](https://github.com/0xfnzero/stream-bridge/releases/tag/v0.1.1)**. Server binaries and all three Bot clients use version **0.1.1**. See [release notes](RELEASE_NOTES.md) for fixes and upgrade instructions.
 
 ## Contents
 
@@ -69,7 +69,7 @@ Roles: `source`, `receiver`, `shred-only`, `private-source`, `private-receiver`.
 Pin a version or directory:
 
 ```bash
-VERSION=v0.1.0 ROLE=source INSTALL_DIR=/opt/stream-bridge ./install.sh
+VERSION=v0.1.1 ROLE=source INSTALL_DIR=/opt/stream-bridge ./install.sh
 ```
 
 The directory must be writable. Unmanaged directories are never replaced. Upgrades preserve root TOML files, `.bridge-token` and `certs/`; the previous installation is retained as `.backup.*`. Restart the process after upgrading. Backups contain credentials and must be protected accordingly.
@@ -121,14 +121,25 @@ Install A/B with `ROLE=private-source` and `ROLE=private-receiver`. Replace exam
 
 Both private templates set `grpc.insecure = true`: the tunnel uses plaintext TCP to B's private IP and port, with no certificate or domain required. Securely copy B's `.bridge-token` to A; shared tokens and client IP allowlists remain enabled. Use these templates only on a controlled, trusted network. Public-network `source` / `receiver` templates retain TLS.
 
-These defaults are available on `main`; published v0.1.0 private templates still enable TLS. Upgrades preserve active configurations. To switch an existing trusted-private deployment, set `insecure = true` in `[grpc]` on **both** machines, run `./run.sh --check` and restart both processes. Old TLS fields are ignored in this mode; credentials are not deleted.
+Starting with v0.1.1, private templates default to plaintext TCP; v0.1.0 private templates use TLS. Upgrades preserve active configurations. To switch an existing trusted-private deployment, set `insecure = true` in `[grpc]` on **both** machines, run `./run.sh --check` and restart both processes. Old TLS fields are ignored in this mode; credentials are not deleted.
 
 Being in the same region does not guarantee connectivity: use a reachable VPC, peering or VPN. The bridge uses system routing, does not create cloud networks, and does not silently fall back to a public IP. For a plaintext Yellowstone upstream, bots use `http://B_PRIVATE_IP:10000`; an upstream requiring TLS still needs `https://` and its own certificate validation. See [deployment details](docs/DEPLOYMENT.md) for authentication and transport choices.
 
 <a id="clients"></a>
 ## Bot clients
 
-See [client integration](clients/README.md) for package installation, API examples and lifecycle handling. All three standalone examples use `clients/client.toml`:
+Install the SDK directly into your Bot project from [crates.io](https://crates.io/crates/stream-bridge-client), [Go modules](https://pkg.go.dev/github.com/0xfnzero/stream-bridge/clients/go) or [npm](https://www.npmjs.com/package/stream-bridge-client):
+
+```bash
+# Rust: raw Shred and typed Yellowstone updates
+cargo add stream-bridge-client@0.1.1 --features yellowstone
+# Go
+go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.1
+# Node.js / TypeScript
+npm install stream-bridge-client@0.1.1
+```
+
+See [client integration](clients/README.md) for API examples and lifecycle handling. All three standalone source examples use `clients/client.toml`:
 
 ```bash
 cargo run --locked --example receive --features yellowstone -- clients/client.toml
@@ -136,7 +147,7 @@ cargo run --locked --example receive --features yellowstone -- clients/client.to
 (cd clients/typescript && npm ci && npm run receive -- ../client.toml)
 ```
 
-Rust can embed the receiver inside a Bot process. Go and TypeScript clients connect to the running Rust receiver. Clients deliver raw Shred bytes with source/timestamp and typed Yellowstone transaction, account, slot and other supported updates. Package-manager availability is tracked in [release notes](RELEASE_NOTES.md).
+Rust can embed the receiver inside a Bot process. Go and TypeScript clients connect to the running Rust receiver. Clients deliver raw Shred bytes with source/timestamp and typed Yellowstone transaction, account, slot and other supported updates. The npm package also includes a receiver CLI: `npx stream-bridge-client@0.1.1 /path/to/client.toml`. SDKs receive data inside your Bot; the bridge service is installed separately.
 
 <a id="behavior"></a>
 ## Runtime behavior

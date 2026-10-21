@@ -67,7 +67,7 @@ node dist/examples/receive.js ../client.toml
 
 ## 集成到 Rust Bot
 
-通过 crates.io 添加 `stream-bridge-client = { version = "0.1.0", features = ["yellowstone"] }`。也可在 Bot 的 Cargo.toml 中加入本地依赖（将路径换成实际位置）：
+通过 crates.io 添加 `stream-bridge-client = { version = "0.1.1", features = ["yellowstone"] }`。也可在 Bot 的 Cargo.toml 中加入本地依赖（将路径换成实际位置）：
 
 ```toml
 [dependencies]
@@ -103,7 +103,7 @@ ShredReceiver 绑定完成后才返回，便于发现端口冲突。Drop 会停�
 
 ## 集成到 Go Bot
 
-安装 Go 版本执行 `go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.0`。本地开发可添加替换（调整绝对路径）：
+安装 Go 版本执行 `go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.1`。本地开发可添加替换（调整绝对路径）：
 
 ```bash
 go mod edit -replace=github.com/0xfnzero/stream-bridge/clients/go=/absolute/path/github.com/0xfnzero/stream-bridge/clients/go
@@ -173,7 +173,7 @@ try {
 
 使用 `parseClientConfig(parsedTomlOrJson)` 校验外部配置；未知字段、错误类型和无效 IP 会被拒绝。SDK 的 `bind`/`connect` 也执行校验，避免白名单拼写错误变为放行所有来源。
 
-`grpc.updateFilters(SubscribeRequest)` 支持替换完整过滤器。接口支持 `for await` 或直接调用 `next()`，同一实例只应有一个读者。64 位 slot/金额等 protobuf 整数保留为字符串，不要直接转换成 JavaScript Number 后计算。npm 包已发布，可使用 `npm install stream-bridge-client`。
+`grpc.updateFilters(SubscribeRequest)` 支持替换完整过滤器。接口支持 `for await` 或直接调用 `next()`，同一实例只应有一个读者。64 位 slot/金额等 protobuf 整数保留为字符串，不要直接转换成 JavaScript Number 后计算。npm 包已发布，可使用 `npm install stream-bridge-client@0.1.1`。
 
 ## 背压、断线和 TLS
 

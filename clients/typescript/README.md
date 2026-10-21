@@ -3,7 +3,7 @@
 Typed Bot client for Solana Shred UDP and Yellowstone gRPC.
 
 ```bash
-npm install stream-bridge-client
+npm install stream-bridge-client@0.1.1
 ```
 
 Exports `ShredReceiver`, `YellowstoneSubscription`, `defaultRequest`, `SubscribeRequest` and `SubscribeUpdate`. UDP reception uses a bounded async iterator; Yellowstone returns decoded updates, supports filter changes and replies to ping. Call `close()` to release resources.

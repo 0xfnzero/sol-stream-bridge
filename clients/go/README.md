@@ -1,7 +1,7 @@
 # stream-bridge Go client
 
 ```bash
-go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.0
+go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.1
 ```
 
 Import as `bridge "github.com/0xfnzero/stream-bridge/clients/go"`.

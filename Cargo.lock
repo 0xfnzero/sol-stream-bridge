@@ -1639,7 +1639,7 @@ checksum = "dcf09694a0fc14e5ffb18f9b7b7c0f15ecb6eac5b5610bf76a1853459d19daf9"
 
 [[package]]
 name = "stream-bridge-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "futures",
@@ -1655,7 +1655,7 @@ dependencies = [
 
 [[package]]
 name = "stream-bridge-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",

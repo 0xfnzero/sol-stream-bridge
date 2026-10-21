@@ -4,7 +4,7 @@ Rust Bot client SDK for receiving Solana Shred UDP packets and typed Yellowstone
 
 ```toml
 [dependencies]
-stream-bridge-client = { version = "0.1.0", features = ["yellowstone"] }
+stream-bridge-client = { version = "0.1.1", features = ["yellowstone"] }
 ```
 
 ```rust,no_run

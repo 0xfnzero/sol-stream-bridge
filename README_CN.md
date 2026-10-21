@@ -18,7 +18,7 @@
 
 **服务端：** `stream-bridge-server` · **Bot 客户端（Rust/npm）：** `stream-bridge-client` · **Go：** `github.com/0xfnzero/stream-bridge/clients/go`
 
-当前源码版本：**0.1.0**。包发布状态见 [发布说明](RELEASE_NOTES.md)。
+当前版本：**[v0.1.1](https://github.com/0xfnzero/stream-bridge/releases/tag/v0.1.1)**。服务端与三语言 Bot 客户端统一为 **0.1.1**，修复内容及升级说明见 [发布说明](RELEASE_NOTES.md)。
 
 ## 目录
 
@@ -68,7 +68,7 @@ cd "$HOME/stream-bridge"
 指定版本或目录：
 
 ```bash
-VERSION=v0.1.0 ROLE=source INSTALL_DIR=/opt/stream-bridge ./install.sh
+VERSION=v0.1.1 ROLE=source INSTALL_DIR=/opt/stream-bridge ./install.sh
 ```
 
 目录需对当前用户可写。安装脚本拒绝覆盖非本工具管理的目录；升级保留根目录 TOML、`.bridge-token` 和 `certs/`，旧安装保留为 `.backup.*`，便于回滚。升级后需重启进程。备份包含凭据，应与安装目录一样保管。
@@ -141,14 +141,25 @@ A/B 使用 `ROLE=private-source` 与 `ROLE=private-receiver` 安装，替换模�
 
 两份内网模板均设置 `grpc.insecure = true`，隧道通过私网 IP + 端口使用明文 TCP，无需证书或域名。将 B 的 `.bridge-token` 安全复制到 A；共享令牌和客户端 IP 白名单继续生效。仅用于受控、可信的网络。公网 `source` / `receiver` 模板保留 TLS。
 
-以上默认值位于当前 `main`；已发布 v0.1.0 的内网模板仍启用 TLS。升级会保留现有配置。已有可信内网部署要切换时，在**两端** `[grpc]` 中设置 `insecure = true`，执行 `./run.sh --check` 后重启两端进程。此模式忽略旧 TLS 字段，不删除现有凭据。
+从 v0.1.1 开始，内网模板默认使用明文 TCP；v0.1.0 的内网模板使用 TLS。升级会保留现有配置。已有可信内网部署要切换时，在**两端** `[grpc]` 中设置 `insecure = true`，执行 `./run.sh --check` 后重启两端进程。此模式忽略旧 TLS 字段，不删除现有凭据。
 
 同一区域不意味着可互通；必须已有互通 VPC、VPC Peering 或 VPN。程序使用系统路由，不创建云网络，也不会在内网失败时自动回退公网。上游 Yellowstone 支持明文时，Bot 使用 `http://B的私网IP:10000`；上游强制 TLS 时仍使用 `https://` 并校验上游证书。认证与传输选择详见 [部署文档](docs/DEPLOYMENT_CN.md)。
 
 <a id="clients"></a>
 ## Bot 客户端
 
-安装方式、可运行示例、数据类型与集成代码见 [三语言客户端说明](clients/README_CN.md)。源码中的三个独立接收示例共用 `clients/client.toml`：
+可直接从 [crates.io](https://crates.io/crates/stream-bridge-client)、[Go modules](https://pkg.go.dev/github.com/0xfnzero/stream-bridge/clients/go) 或 [npm](https://www.npmjs.com/package/stream-bridge-client) 安装到 Bot 项目：
+
+```bash
+# Rust：同时接收 Shred 和结构化 Yellowstone 消息
+cargo add stream-bridge-client@0.1.1 --features yellowstone
+# Go
+go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.1
+# Node.js / TypeScript
+npm install stream-bridge-client@0.1.1
+```
+
+可运行示例、数据类型与集成代码见 [三语言客户端说明](clients/README_CN.md)。源码中的三个独立接收示例共用 `clients/client.toml`：
 
 ```bash
 # Rust
@@ -161,7 +172,7 @@ cargo run --locked --example receive --features yellowstone -- clients/client.to
 (cd clients/typescript && npm ci && npm run receive -- ../client.toml)
 ```
 
-Rust 支持将桥接接收端嵌入 Bot；Go/TS 客户端连接已运行的 Rust 接收端。Bot 得到 Shred 原始字节、来源与接收时间，以及 Yellowstone 结构化交易/账户/slot 等消息。包管理器安装命令及当前可用状态见 [发布说明](RELEASE_NOTES.md)。
+Rust 支持将桥接接收端嵌入 Bot；Go/TS 客户端连接已运行的 Rust 接收端。Bot 得到 Shred 原始字节、来源与接收时间，以及 Yellowstone 结构化交易/账户/slot 等消息。npm 包还提供可直接运行的接收命令：`npx stream-bridge-client@0.1.1 /path/to/client.toml`。SDK 在 Bot 进程内接收数据，桥接服务单独安装。
 
 <a id="behavior"></a>
 ## 运行边界
