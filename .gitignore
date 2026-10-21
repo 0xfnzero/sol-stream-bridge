@@ -18,3 +18,7 @@ __pycache__/
 /.dashboard-token
 /dashboard-state.toml
 /dashboard-state.toml.lock
+
+/.dashboard-initial-credentials
+/dashboard-admin.toml
+/dashboard-admin.toml.lock

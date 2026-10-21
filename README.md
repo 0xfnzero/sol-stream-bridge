@@ -89,6 +89,8 @@ For a provider limited to one connection, also set `[grpc] max_connections = 1` 
 
 Run `./setup-dashboard.sh` on the shared receiver, enable `[grpc.shared.dashboard]` as instructed, and start the server. The default URL is `http://127.0.0.1:8080`; use SSH forwarding for remote access. Shred routes and global upstream settings remain in TOML. **Published v0.1.1 does not include this feature.** See [dashboard setup, credentials and backups](docs/DASHBOARD.md).
 
+Setup prints a random nine-character username and initial password once in the terminal. The login page supports password show/hide; first login requires a password change. Later changes require the current password and revoke all dashboard sessions without affecting Bot keys or streams. Saved passwords use Argon2id hashes.
+
 ![React operator dashboard](docs/images/dashboard.jpg)
 
 Local test environment; no production upstream attached.
@@ -122,7 +124,7 @@ Pin a version or directory:
 VERSION=v0.1.1 ROLE=source INSTALL_DIR=/opt/stream-bridge ./install.sh
 ```
 
-The directory must be writable. Unmanaged directories are never replaced. Upgrades preserve root TOML files, `.bridge-token`, `.dashboard-token` and `certs/`; the previous installation is retained as `.backup.*`. Restart the process after upgrading. Backups contain credentials and must be protected accordingly.
+The directory must be writable. Unmanaged directories are never replaced. Upgrades preserve root TOML files (including dashboard state and password hashes), `.bridge-token`, `.dashboard-initial-credentials`, legacy `.dashboard-token` and `certs/`; the previous installation is retained as `.backup.*`. Restart the process after upgrading. Backups contain credentials and must be protected accordingly.
 
 <a id="quick-start"></a>
 ## Configuration and startup

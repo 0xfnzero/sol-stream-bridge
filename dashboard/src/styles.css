@@ -1199,3 +1199,32 @@ td code {
     scroll-behavior: auto !important;
   }
 }
+.password-label,
+.password-form label:not(:first-child) {
+  margin-top: 18px;
+}
+.password-card {
+  width: 480px;
+}
+.login-card .info-box {
+  margin-bottom: 18px;
+}
+.password-card > .text-button {
+  margin-top: 18px;
+}
+
+.password-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.password-input-row input {
+  min-width: 0;
+}
+.password-toggle {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #176a50;
+  min-height: 40px;
+  padding: 8px;
+}

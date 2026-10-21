@@ -51,16 +51,20 @@ class InstallerTests(unittest.TestCase):
         token=f'$(touch "{marker}")'
         (self.install/'.bridge-token').write_text(token)
         (self.install/'.bridge-token').chmod(0o600)
-        (self.install/'.dashboard-token').write_text('dashboard-secret')
-        (self.install/'.dashboard-token').chmod(0o600)
+        (self.install/'.dashboard-initial-credentials').write_text('sb_test01\ndashboard-secret\n')
+        (self.install/'.dashboard-initial-credentials').chmod(0o600)
+        (self.install/'dashboard-admin.toml').write_text('credential hash state')
+        (self.install/'dashboard-admin.toml').chmod(0o600)
         (self.install/'dashboard-state.toml').write_text('managed state')
         (self.install/'dashboard-state.toml').chmod(0o600)
         (self.install/'certs').mkdir();(self.install/'certs/private.pem').write_text('test certificate')
         result=self.install_package();self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual((self.install/'config.toml').read_text(),'personal config\n')
         self.assertTrue((self.install/'custom.toml').exists())
-        self.assertEqual((self.install/'.dashboard-token').read_text(),'dashboard-secret')
+        self.assertEqual((self.install/'.dashboard-initial-credentials').read_text(),'sb_test01\ndashboard-secret\n')
         self.assertEqual((self.install/'dashboard-state.toml').read_text(),'managed state')
+        self.assertEqual((self.install/'dashboard-admin.toml').read_text(),'credential hash state')
+        self.assertEqual((self.install/'dashboard-admin.toml').stat().st_mode&0o777,0o600)
         self.assertEqual((self.install/'dashboard-state.toml').stat().st_mode&0o777,0o600)
         self.assertTrue((self.install/'certs/private.pem').exists())
         self.assertEqual((self.install/'.bridge-token').stat().st_mode&0o777,0o600)
@@ -70,28 +74,55 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse(marker.exists())
         self.assertEqual(len(list(self.root.glob('installed bridge.backup.*'))),1)
 
-    def test_dashboard_setup_and_token_loading_are_safe(self):
+    def test_dashboard_setup_and_credential_loading_are_safe(self):
         result=self.install_package();self.assertEqual(result.returncode,0,result.stderr)
         assets=self.install/'dashboard/dist';assets.mkdir(parents=True)
         (assets/'index.html').write_text('<html></html>')
         script=self.install/'setup-dashboard.sh'
-        subprocess.run([str(script)],check=True,capture_output=True)
-        token=(self.install/'.dashboard-token').read_bytes()
-        subprocess.run([str(script)],check=True,capture_output=True)
-        self.assertEqual((self.install/'.dashboard-token').read_bytes(),token)
-        self.assertEqual((self.install/'.dashboard-token').stat().st_mode&0o777,0o600)
+        first=subprocess.run([str(script)],check=True,capture_output=True,text=True)
+        token=(self.install/'.dashboard-initial-credentials').read_bytes()
+        lines=token.decode().splitlines()
+        self.assertRegex(lines[0],r'^sb_[0-9a-f]{6}$')
+        self.assertEqual(len(lines[1]),48)
+        self.assertIn(lines[0],first.stdout)
+        self.assertIn(lines[1],first.stdout)
+        again=subprocess.run([str(script)],check=True,capture_output=True,text=True)
+        self.assertNotIn(lines[1],again.stdout)
+        self.assertEqual((self.install/'.dashboard-initial-credentials').read_bytes(),token)
+        self.assertEqual((self.install/'.dashboard-initial-credentials').stat().st_mode&0o777,0o600)
         binary=self.install/'bin/stream-bridge-server'
-        binary.write_text('#!/bin/bash\nprintf "%s" "${DASHBOARD_TOKEN:-}"\n')
+        binary.write_text('#!/bin/bash\nprintf "%s" "${DASHBOARD_INITIAL_PASSWORD:-}"\n')
         marker=self.root/'never-run'
         token=f'$(touch "{marker}")'
-        (self.install/'.dashboard-token').write_text(token)
-        env=dict(os.environ);env.pop('DASHBOARD_TOKEN',None)
+        (self.install/'.dashboard-initial-credentials').write_text('sb_test01\n'+token+'\n')
+        env=dict(os.environ);env.pop('DASHBOARD_INITIAL_PASSWORD',None);env.pop('DASHBOARD_INITIAL_USERNAME',None)
         result=subprocess.run([str(self.install/'run.sh'),'--check'],env=env,text=True,capture_output=True,check=True)
         self.assertEqual(result.stdout,token)
         self.assertFalse(marker.exists())
-        env['DASHBOARD_TOKEN']='exported-token'
+        env['DASHBOARD_INITIAL_PASSWORD']='exported-token'
         result=subprocess.run([str(self.install/'run.sh'),'--check'],env=env,text=True,capture_output=True,check=True)
         self.assertEqual(result.stdout,'exported-token')
+        (self.install/'dashboard-admin.toml').write_text('saved password hash')
+        (self.install/'.dashboard-initial-credentials').unlink()
+        again=subprocess.run([str(script)],check=True,capture_output=True,text=True)
+        self.assertNotIn('Initial dashboard password:',again.stdout)
+        self.assertFalse((self.install/'.dashboard-initial-credentials').exists())
+
+    def test_dashboard_setup_only_creates_credentials_after_assets_are_ready(self):
+        result=self.install_package();self.assertEqual(result.returncode,0,result.stderr)
+        script=self.install/'setup-dashboard.sh'
+        failed=subprocess.run([str(script)],capture_output=True,text=True)
+        self.assertNotEqual(failed.returncode,0)
+        self.assertFalse((self.install/'.dashboard-initial-credentials').exists())
+        assets=self.install/'dashboard/dist';assets.mkdir(parents=True)
+        (assets/'index.html').write_text('<html></html>')
+        env=dict(os.environ,DASHBOARD_INITIAL_USERNAME='admin')
+        failed=subprocess.run([str(script)],env=env,capture_output=True,text=True)
+        self.assertNotEqual(failed.returncode,0)
+        self.assertFalse((self.install/'.dashboard-initial-credentials').exists())
+        env['DASHBOARD_INITIAL_USERNAME']='my_bridge'
+        result=subprocess.run([str(script)],env=env,check=True,capture_output=True,text=True)
+        self.assertIn('Initial dashboard username: my_bridge',result.stdout)
 
     def test_bad_or_missing_checksum_does_not_replace_install(self):
         result=self.install_package();self.assertEqual(result.returncode,0,result.stderr)

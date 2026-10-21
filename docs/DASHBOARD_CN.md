@@ -18,16 +18,21 @@ Shred 路由、默认透传模式、监听地址、TLS、供应商凭证及全�
 先完成 [共享模式部署](SHARED_CN.md)，确保源 A 与接收端 B 的隧道配置一致。在 B 的仓库目录中执行：
 
 ```bash
-# 首次构建页面需要 Node.js >=22.12、npm；生成令牌需要 openssl
+# 首次构建页面需要 Node.js >=22.12、npm；生成凭据需要 openssl
 ./setup-dashboard.sh
 ```
 
-脚本生成权限为 `600` 的 `.dashboard-token`，保留已有令牌，缺少静态页面时自动安装前端依赖并构建。将下表添加到实际使用的共享接收端配置中（不要重复添加）：
+脚本在页面构建成功后生成短随机账号（`sb_` 加 6 位十六进制字符，共 9 位）和随机初始密码，**仅在首次成功初始化的终端输出一次**。同时保存为权限 `600` 的 `.dashboard-initial-credentials`：第一行账号，第二行初始密码。重复执行会保留已有凭据，不再打印密码。登录页不会公开初始凭据；显隐按钮仅用于查看自己输入的密码。
+
+如需自定义初始账号，可在首次初始化时执行 `DASHBOARD_INITIAL_USERNAME=my_bridge ./setup-dashboard.sh`。账号允许 3–64 位英文字母、数字、点、下划线或连字符，禁止使用 `admin`、`administrator`、`root`。将下表添加到实际使用的共享接收端配置中（不要重复添加）：
 
 ```toml
 [grpc.shared.dashboard]
 listen = "127.0.0.1:8080"
-token_env = "DASHBOARD_TOKEN"
+auth_file = "dashboard-admin.toml"
+# 可选：自定义初始凭据的环境变量名称
+# initial_username_env = "DASHBOARD_INITIAL_USERNAME"
+# initial_password_env = "DASHBOARD_INITIAL_PASSWORD"
 state_file = "dashboard-state.toml"
 assets_dir = "dashboard/dist"
 ```
@@ -40,9 +45,17 @@ cargo build --release --locked
 ./run.sh config.shared-receiver.toml
 ```
 
-若使用 `config.toml` 则省略文件参数。`run.sh` 自动把 `.dashboard-token` 作为数据读入环境变量 `DASHBOARD_TOKEN`；已导出的同名变量优先。自定义 `token_env` 时自行导出对应变量。直接运行二进制时也需提供环境变量，并从项目/安装目录运行，因为配置内路径相对于工作目录。启用后访问 [http://127.0.0.1:8080](http://127.0.0.1:8080)，在自己终端读取 `.dashboard-token` 并输入登录框。
+若使用 `config.toml` 则省略文件参数。`run.sh` 将凭据文件的两行作为数据读入 `DASHBOARD_INITIAL_USERNAME` 和 `DASHBOARD_INITIAL_PASSWORD`，已导出的同名变量优先。自定义上述环境变量名称时需自行导出对应变量。直接运行二进制时，首次启动也要提供这些变量，并从项目/安装目录运行，因为配置路径相对于工作目录。`--check` 只验证，不创建账号。
+
+访问 [http://127.0.0.1:8080](http://127.0.0.1:8080)，输入初始账号密码，**首次登录必须修改密码后才能进入控制台**。新密码至少 12 个字符、最多 128 个 UTF-8 字节，不允许控制字符。以后点击控制台顶部的钥匙按钮修改密码，需要输入当前密码并确认新密码。修改成功会撤销所有面板登录会话，要求重新登录；Bot 用户的 API Key 和转发连接不受影响。
+
+实际首次启动会将 Argon2id 密码哈希保存到 `dashboard-admin.toml`（权限 `600`、原子写入、进程独占锁）。该文件存在后，初始环境变量不再参与认证。完成首次改密后可删除 `.dashboard-initial-credentials`，它不是当前密码存储文件。凭据文件损坏或权限不安全时会拒绝启动，不自动重置账号。
 
 后续 Linux Release 打包流程会包含构建好的 `dashboard/dist` 和初始化脚本，届时安装包运行无需 Node.js。当前不要用旧 v0.1.1 二进制尝试启用此配置。
+
+![账号密码登录与密码显隐](images/dashboard-login.jpg)
+
+截图使用本地测试账号；登录页不会直接展示初始账号密码。
 
 ## 远程管理
 
@@ -54,13 +67,19 @@ ssh -N -L 8080:127.0.0.1:8080 user@RECEIVER_IP
 
 在本地浏览器打开 `http://127.0.0.1:8080`。若本地端口已占用，可改用 `-L 18080:127.0.0.1:8080` 和 `http://127.0.0.1:18080`。管理 HTTP 走 SSH 通道，不改变 Bot、上游或桥接隧道的传输设置。Host 仅接受 localhost/127.0.0.1/::1，跨来源浏览器请求会被拒绝。
 
-管理员令牌与用户 API Key、`BRIDGE_TOKEN`、供应商 `x-token` **互相独立**。管理员令牌只在浏览器内存保存，刷新/退出需重新登录，不写入 localStorage、Cookie 或 URL。修改管理员令牌需重启进程；用户 Key 轮换即时生效。
+面板账号与用户 API Key、`BRIDGE_TOKEN`、供应商 `x-token` **互相独立**。登录后产生随机会话令牌，仅放在浏览器内存，不写入 localStorage、Cookie 或 URL；服务端仅保留令牌哈希。会话最长有效 8 小时，刷新需重新登录，退出会撤销当前会话，服务重启会清空所有会话。修改密码立即撤销全部会话，无需重启。登录与改密共享每分钟 10 次的全局请求限制，同时最多执行一个密码哈希任务，仅保留最近 32 个会话，超过时成功登录会撤销最早的会话。
+
+## 迁移与账号恢复
+
+若使用过早期 main 分支的 `DASHBOARD_TOKEN` 登录，执行初始化脚本，将**仅 `[grpc.shared.dashboard]` 下的 `token_env`** 替换为上面的 `auth_file` 配置。旧管理员令牌不再用于登录；保留 `dashboard-state.toml` 和桥接、供应商的 Token 配置。
+
+忘记密码时，先停止服务，安全备份并移走配置指向的 `auth_file` 和 `.dashboard-initial-credentials`，重新执行初始化脚本并启动，即可创建需要首次改密的新账号。保留 `dashboard-state.toml`，避免重置 Bot 用户密钥与策略。恢复后妥善保护或安全清理旧凭据备份。单纯修改初始环境变量不会重置已有账号。
 
 ## 用户与生效规则
 
 1. 添加用户并设置额度。新 Key 只在创建或轮换成功后显示一次，关闭后无法再次查询；丢失时轮换。
 2. 如果界面提示 Key 验证未开启，前往访问策略显式开启。添加用户本身不会改变全局验证方式。已有 Key 非空的 TOML 初始配置默认开启。
-3. 将 Key 交给相应 Bot，使用源码客户端的 `api_key` 参数，或 Yellowstone 的 `x-token` / `x-api-key` metadata。不要把管理员令牌交给 Bot。
+3. 将 Key 交给相应 Bot，使用源码客户端的 `api_key` 参数，或 Yellowstone 的 `x-token` / `x-api-key` metadata。不要把面板账号密码或会话令牌交给 Bot。
 4. 每用户额度在该用户所有订阅间累计，另受每流与全局上游额度限制。允许账户更新是单用户明确授权。
 
 修改用户 Key/额度/状态、删除用户会终止该用户现有订阅；其他用户保留。移除 IP 会终止来自该 IP 的订阅。切换全局 Key 验证会终止全部订阅。Bot 需要处理流结束并重新订阅。手动断开仅关闭指定流，用户仍可重新连接；需禁止重连时停用用户或移除 IP。TCP 连接可能保持 HTTP/2 空闲状态，因此 TCP 数不会因关闭 Subscribe 立即归零。
@@ -73,7 +92,7 @@ ssh -N -L 8080:127.0.0.1:8080 user@RECEIVER_IP
 
 状态文件含用户明文 Key，必须是普通文件且 Unix 权限不向组或其他用户开放（推荐 `chmod 600 dashboard-state.toml`）。进程以原子替换方式保存；多个服务不能写同一状态文件。外部修改、文件损坏、权限不安全会导致拒绝保存或启动失败，不会自动回退到旧 Key。管理 API 查询不会返回这些密钥。
 
-备份状态文件、实际配置、`.dashboard-token` 和隧道凭证，限制备份访问权限。安装升级会保留根目录 TOML、两种令牌和证书；自定义外部状态路径由运维自行备份。不要删除状态文件来“重置界面”：删除后重启会重新启用 TOML 中的旧用户/Key。停用面板或切回旧二进制同样需先核对 TOML 策略。
+备份 `dashboard-state.toml`、`dashboard-admin.toml`、实际配置、仍保留的 `.dashboard-initial-credentials`、`.bridge-token` 和隧道凭证，限制备份访问权限。安装升级会保留根目录 TOML、凭据文件和证书，也保留旧 `.dashboard-token`；自定义外部路径由运维自行备份。不要删除状态文件来“重置界面”：删除后重启会重新启用 TOML 中的旧用户/Key。停用面板或切回旧二进制同样需先核对 TOML 策略。
 
 保存会校验页面看到的配置版本。多管理员同时编辑时，过时修改返回 409，刷新/重新打开表单后重试；不会默默覆盖其他管理员修改。请求中断或超时时保存可能已经完成，先刷新状态再决定是否重试。新建/轮换响应丢失时，可再次轮换生成一个已知 Key。
 
@@ -88,4 +107,4 @@ npm test
 npm run dev
 ```
 
-前端没有转发热路径逻辑，每 2 秒读取服务状态；文件持久化在后台阻塞任务进行，不在转发锁内执行。默认不开启面板时，不加载静态页面、不启动管理监听。没有进行生产流量延迟基准测试。
+前端没有转发热路径逻辑，每 2 秒读取服务状态；文件持久化和密码哈希在后台阻塞任务进行，不在转发锁内执行。默认不开启面板时，不加载静态页面、不启动管理监听。没有进行生产流量延迟基准测试。

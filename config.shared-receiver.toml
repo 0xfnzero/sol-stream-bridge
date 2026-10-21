@@ -64,6 +64,8 @@ allow_accounts = true # explicit opt-in for account update subscriptions
 # Run ./setup-dashboard.sh, then uncomment this entire table.
 # [grpc.shared.dashboard]
 # listen = "127.0.0.1:8080" # loopback only; remote access via SSH -L
-# token_env = "DASHBOARD_TOKEN" # run.sh loads .dashboard-token
+# auth_file = "dashboard-admin.toml" # salted password hash; mode 600
+# initial_username_env = "DASHBOARD_INITIAL_USERNAME" # run.sh loads initial credentials
+# initial_password_env = "DASHBOARD_INITIAL_PASSWORD"
 # state_file = "dashboard-state.toml" # mode 600; keys/IPs/users override TOML after first save
 # assets_dir = "dashboard/dist"

@@ -11,6 +11,13 @@ import App from "./App";
 import { limitsFromForm, type Snapshot } from "./api";
 
 const adminToken = "test-only-administrator-token-32bytes";
+const loginPassword = "test-password-twelve-characters";
+const loginResponse = {
+  token: adminToken,
+  username: "sb_test01",
+  must_change_password: false,
+  expires_in_seconds: 28800,
+};
 const secret = "a".repeat(64);
 const initial: Snapshot = {
   revision: "0",
@@ -60,7 +67,9 @@ const reply = (data: unknown, status = 200) =>
 beforeEach(() => {
   snapshot = structuredClone(initial);
   vi.stubGlobal("fetch", fetchMock);
-  fetchMock.mockImplementation(() => reply(snapshot));
+  fetchMock.mockImplementation((path) =>
+    reply(path === "/api/auth/login" ? loginResponse : snapshot),
+  );
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
     configurable: true,
     value: function (this: HTMLDialogElement) {
@@ -82,7 +91,11 @@ afterEach(() => {
 async function login() {
   const user = userEvent.setup();
   render(<App />);
-  await user.type(screen.getByLabelText("管理员令牌"), adminToken);
+  await user.type(screen.getByLabelText("账号"), "sb_test01");
+  await user.type(
+    screen.getByLabelText("密码", { exact: true }),
+    loginPassword,
+  );
   await user.click(screen.getByRole("button", { name: "进入控制台" }));
   await screen.findByRole("heading", { name: "运行概览" });
   return user;
@@ -93,18 +106,24 @@ describe("operator session and live changes", () => {
     fetchMock.mockImplementation(() => reply({ error: "invalid" }, 401));
     const user = userEvent.setup();
     render(<App />);
-    await user.type(screen.getByLabelText("管理员令牌"), adminToken);
+    await user.type(screen.getByLabelText("账号"), "sb_test01");
+    await user.type(
+      screen.getByLabelText("密码", { exact: true }),
+      loginPassword,
+    );
     await user.click(screen.getByRole("button", { name: "进入控制台" }));
     expect(await screen.findByRole("alert")).toHaveProperty(
       "textContent",
-      "管理员令牌无效，请检查后重试。",
+      "账号或密码错误，请检查后重试。",
     );
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       credentials: "omit",
       cache: "no-store",
-      headers: { Authorization: `Bearer ${adminToken}` },
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      body: JSON.stringify({ username: "sb_test01", password: loginPassword }),
     });
   });
   it("creates a real request with quota settings and clears the one-time secret on logout", async () => {
@@ -148,7 +167,10 @@ describe("operator session and live changes", () => {
     await user.click(screen.getByRole("button", { name: "我已保存" }));
     expect(screen.queryByDisplayValue(secret)).toBeNull();
     await user.click(screen.getByRole("button", { name: "退出登录" }));
-    expect(screen.getByLabelText("管理员令牌")).toHaveProperty("value", "");
+    expect(screen.getByLabelText("密码", { exact: true })).toHaveProperty(
+      "value",
+      "",
+    );
     expect(screen.queryByText("bot-01")).toBeNull();
   });
   it("surfaces stale revisions without silently retrying a write", async () => {
@@ -166,7 +188,9 @@ describe("operator session and live changes", () => {
       "Settings changed. Refresh and try again.",
     );
     expect(
-      fetchMock.mock.calls.filter(([, o]) => o?.method === "POST"),
+      fetchMock.mock.calls.filter(
+        ([path, o]) => path === "/api/users" && o?.method === "POST",
+      ),
     ).toHaveLength(1);
   });
   it("requires confirmation before updating access and resets the saved draft", async () => {
@@ -218,4 +242,97 @@ it("rejects fractional, zero and excessive quota input", () => {
     input.value = invalid;
     expect(() => limitsFromForm(form)).toThrow();
   }
+});
+
+it("shows and hides the entered login password without exposing initial credentials", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  const input = screen.getByLabelText("密码", { exact: true });
+  await user.type(input, loginPassword);
+  expect(input).toHaveProperty("type", "password");
+  await user.click(screen.getByRole("button", { name: "显示密码" }));
+  expect(input).toHaveProperty("type", "text");
+  await user.click(screen.getByRole("button", { name: "隐藏密码" }));
+  expect(input).toHaveProperty("type", "password");
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it("requires a first-login password change before fetching operator data", async () => {
+  fetchMock.mockImplementation((path) =>
+    reply(
+      path === "/api/auth/login"
+        ? { ...loginResponse, must_change_password: true }
+        : { ok: true },
+    ),
+  );
+  const user = userEvent.setup();
+  render(<App />);
+  await user.type(screen.getByLabelText("账号"), "sb_test01");
+  await user.type(
+    screen.getByLabelText("密码", { exact: true }),
+    loginPassword,
+  );
+  await user.click(screen.getByRole("button", { name: "进入控制台" }));
+  await screen.findByRole("heading", { name: "设置你的新密码" });
+  expect(fetchMock.mock.calls.some(([path]) => path === "/api/state")).toBe(
+    false,
+  );
+  await user.type(
+    screen.getByLabelText("当前密码", { exact: true }),
+    loginPassword,
+  );
+  await user.type(
+    screen.getByLabelText("新密码", { exact: true }),
+    "new-password-for-test",
+  );
+  await user.type(
+    screen.getByLabelText("确认新密码", { exact: true }),
+    "different-password-for-test",
+  );
+  await user.click(screen.getByRole("button", { name: "保存新密码" }));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    "两次输入的新密码不一致。",
+  );
+  await user.clear(screen.getByLabelText("确认新密码", { exact: true }));
+  await user.type(
+    screen.getByLabelText("确认新密码", { exact: true }),
+    "new-password-for-test",
+  );
+  await user.click(screen.getByRole("button", { name: "保存新密码" }));
+  await screen.findByRole("heading", { name: "连接你的转发服务" });
+  expect(screen.getByRole("status").textContent).toContain("密码已更新");
+  const mutation = fetchMock.mock.calls.find(
+    ([path]) => path === "/api/auth/password",
+  );
+  expect(JSON.parse(String(mutation?.[1]?.body))).toEqual({
+    current_password: loginPassword,
+    new_password: "new-password-for-test",
+  });
+  expect(screen.getByLabelText("密码", { exact: true })).toHaveProperty(
+    "value",
+    "",
+  );
+});
+
+it("allows an established operator to change their password", async () => {
+  const user = await login();
+  await user.click(screen.getByRole("button", { name: "修改密码" }));
+  await user.type(
+    screen.getByLabelText("当前密码", { exact: true }),
+    loginPassword,
+  );
+  await user.type(
+    screen.getByLabelText("新密码", { exact: true }),
+    "new-password-for-test",
+  );
+  await user.type(
+    screen.getByLabelText("确认新密码", { exact: true }),
+    "new-password-for-test",
+  );
+  await user.click(screen.getByRole("button", { name: "保存新密码" }));
+  expect(await screen.findByRole("status")).toHaveProperty(
+    "textContent",
+    "密码已更新，请使用新密码重新登录。其他登录会话已失效。",
+  );
 });

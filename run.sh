@@ -8,9 +8,15 @@ if [[ -z "${BRIDGE_TOKEN:-}" && -f .bridge-token ]]; then
   BRIDGE_TOKEN="$(cat .bridge-token)"
   export BRIDGE_TOKEN
 fi
-if [[ -z "${DASHBOARD_TOKEN:-}" && -f .dashboard-token ]]; then
-  DASHBOARD_TOKEN="$(cat .dashboard-token)"
-  export DASHBOARD_TOKEN
+if [[ -f .dashboard-initial-credentials ]]; then
+  if [[ -z "${DASHBOARD_INITIAL_USERNAME:-}" ]]; then
+    IFS= read -r DASHBOARD_INITIAL_USERNAME < .dashboard-initial-credentials
+    export DASHBOARD_INITIAL_USERNAME
+  fi
+  if [[ -z "${DASHBOARD_INITIAL_PASSWORD:-}" ]]; then
+    DASHBOARD_INITIAL_PASSWORD="$(sed -n '2p' .dashboard-initial-credentials)"
+    export DASHBOARD_INITIAL_PASSWORD
+  fi
 fi
 binary=bin/stream-bridge-server
 if [[ ! -x "$binary" ]]; then

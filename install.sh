@@ -52,7 +52,7 @@ package="$tmp/stream-bridge"
 [[ -f "$package/$MARKER" && -x "$package/bin/stream-bridge-server" && -x "$package/run.sh" && -x "$package/setup.sh" ]] || fail "Incomplete release package"
 # Upgrade only program/templates. Retain user configuration, tokens and certificates.
 if [[ -d "$INSTALL_DIR" ]]; then
-  for file in "$INSTALL_DIR"/*.toml "$INSTALL_DIR"/.bridge-token "$INSTALL_DIR"/.dashboard-token; do
+  for file in "$INSTALL_DIR"/*.toml "$INSTALL_DIR"/.bridge-token "$INSTALL_DIR"/.dashboard-token "$INSTALL_DIR"/.dashboard-initial-credentials; do
     [[ ! -e "$file" ]] || cp -p "$file" "$package/"
   done
   [[ ! -d "$INSTALL_DIR/certs" ]] || cp -Rp "$INSTALL_DIR/certs" "$package/"

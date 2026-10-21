@@ -1,7 +1,8 @@
 # Unreleased / 尚未发布
 
-- React operator dashboard for shared gRPC: live usage, API key lifecycle, user quotas/account permissions, IP policy, stream disconnects and durable access settings. Loopback admin API with a separate token; bundled assets added to future Linux packages. See [dashboard guide](docs/DASHBOARD.md).
-- 新增 React 管理面板、独立管理员令牌、用户与白名单实时管理及持久化；详见 [中文指南](docs/DASHBOARD_CN.md)。
+- React operator dashboard for shared gRPC: live usage, API key lifecycle, user quotas/account permissions, IP policy, stream disconnects and durable access settings. Loopback admin API with separate username/password authentication; bundled assets added to future Linux packages. See [dashboard guide](docs/DASHBOARD.md).
+- Initial nine-character random username and password shown once in the setup terminal; password show/hide, mandatory first-login change, later changes with current-password verification, Argon2id hashes, bounded login attempts and revocable eight-hour sessions. Replaces the earlier unreleased dashboard token login; see the migration guide above.
+- 新增 React 管理面板、独立账号密码登录、用户与白名单实时管理及持久化。初始化终端一次性显示 9 位随机账号和密码，首次登录强制改密，支持密码显隐；后续改密撤销全部面板会话，不影响 Bot 密钥或转发。详见 [中文指南](docs/DASHBOARD_CN.md)。
 
 - Shared Yellowstone mode merges multiple users into one upstream Subscribe stream and routes labelled updates back to their own filters.
 - Optional per-user `x-token` / `x-api-key` authentication combines with IP allowlists. Empty key configuration disables only key checks.

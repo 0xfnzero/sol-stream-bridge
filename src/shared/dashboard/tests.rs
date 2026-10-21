@@ -13,13 +13,13 @@ use yellowstone_grpc_proto::{
     tonic::{self, metadata::MetadataMap, Code},
 };
 
-const TOKEN: &str = "test-administrator-token-32-bytes-minimum";
-struct Fixture {
-    admin: Admin,
+const TOKEN: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+pub(super) struct Fixture {
+    pub(super) admin: Admin,
     _dir: tempfile::TempDir,
 }
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
         let metrics = Arc::new(Metrics::default());
         let (hub, _) = Registry::new(SharedConfig::default(), metrics.clone());
@@ -44,7 +44,7 @@ impl Fixture {
             admin: Admin {
                 hub,
                 metrics,
-                token: Sha256::digest(TOKEN).into(),
+                auth: auth::test_auth(dir.path().join("admin.toml"), TOKEN),
                 writer: Arc::new(Mutex::new(
                     persistence::Writer::open(dir.path().join("state.toml")).unwrap(),
                 )),

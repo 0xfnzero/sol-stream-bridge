@@ -1,3 +1,9 @@
+export interface LoginResult {
+  token: string;
+  username: string;
+  must_change_password: boolean;
+  expires_in_seconds: number;
+}
 export interface Limits {
   max_subscriptions: number | null;
   max_filters: number | null;
@@ -88,7 +94,7 @@ export async function request<T>(
   const response = await fetch(path, {
     method,
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     body: body === undefined ? undefined : JSON.stringify(body),

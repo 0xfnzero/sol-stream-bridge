@@ -1,4 +1,5 @@
 //! Loopback-only operator API and bundled React dashboard.
+mod auth;
 mod persistence;
 #[cfg(test)]
 mod tests;
@@ -15,7 +16,7 @@ use anyhow::{ensure, Context, Result};
 use axum::{
     body::{Body, Bytes},
     extract::{DefaultBodyLimit, Path, Request, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post, put},
@@ -23,7 +24,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -31,14 +31,15 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use subtle::ConstantTimeEq;
 use tokio::{net::TcpListener, sync::Mutex};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DashboardConfig {
     pub listen: SocketAddr,
-    pub token_env: String,
+    pub initial_username_env: String,
+    pub initial_password_env: String,
+    pub auth_file: PathBuf,
     pub state_file: PathBuf,
     pub assets_dir: PathBuf,
 }
@@ -46,7 +47,9 @@ impl Default for DashboardConfig {
     fn default() -> Self {
         Self {
             listen: "127.0.0.1:8080".parse().unwrap(),
-            token_env: "DASHBOARD_TOKEN".into(),
+            initial_username_env: "DASHBOARD_INITIAL_USERNAME".into(),
+            initial_password_env: "DASHBOARD_INITIAL_PASSWORD".into(),
+            auth_file: "dashboard-admin.toml".into(),
             state_file: "dashboard-state.toml".into(),
             assets_dir: "dashboard/dist".into(),
         }
@@ -59,23 +62,18 @@ impl DashboardConfig {
             "dashboard.listen must use a nonzero loopback port"
         );
         ensure!(
-            !self.token_env.is_empty()
+            !self.initial_username_env.is_empty()
+                && !self.initial_password_env.is_empty()
+                && !self.auth_file.as_os_str().is_empty()
+                && self.auth_file != self.state_file
                 && !self.state_file.as_os_str().is_empty()
                 && !self.assets_dir.as_os_str().is_empty(),
-            "dashboard paths/token_env must not be empty"
+            "dashboard paths/environment names must not be empty; auth_file and state_file must differ"
         );
         Ok(())
     }
-    fn token(&self) -> Result<[u8; 32]> {
-        let value = std::env::var(&self.token_env)
-            .context("set the dashboard administrator token environment variable")?;
-        ensure!(
-            value.len() >= 32 && value.len() <= 256 && value.bytes().all(|b| b.is_ascii_graphic()),
-            "dashboard token must contain 32..256 visible ASCII bytes"
-        );
-        Ok(Sha256::digest(value.as_bytes()).into())
-    }
 }
+
 pub(super) fn load_state(g: &Grpc, cfg: &SharedConfig) -> Result<ManagedState> {
     let state = match &cfg.dashboard {
         Some(admin) => {
@@ -88,7 +86,7 @@ pub(super) fn load_state(g: &Grpc, cfg: &SharedConfig) -> Result<ManagedState> {
 }
 pub(super) fn validate(g: &Grpc, cfg: &SharedConfig) -> Result<()> {
     if let Some(admin) = &cfg.dashboard {
-        admin.token()?;
+        auth::validate(admin)?;
         load_state(g, cfg)?;
         ensure!(
             admin.assets_dir.join("index.html").is_file(),
@@ -140,7 +138,7 @@ fn assets(dir: &std::path::Path) -> Result<Assets> {
 struct Admin {
     hub: Hub,
     metrics: Arc<Metrics>,
-    token: [u8; 32],
+    auth: Arc<auth::Auth>,
     writer: Arc<Mutex<persistence::Writer>>,
     assets: Arc<Assets>,
     info: Arc<Value>,
@@ -160,7 +158,7 @@ fn invalid() -> ApiError {
     )
 }
 
-async fn guard(State(admin): State<Admin>, request: Request, next: Next) -> Response {
+async fn guard(State(admin): State<Admin>, mut request: Request, next: Next) -> Response {
     let host = request
         .headers()
         .get(header::HOST)
@@ -177,17 +175,24 @@ async fn guard(State(admin): State<Admin>, request: Request, next: Next) -> Resp
         .headers()
         .get("sec-fetch-site")
         .is_none_or(|v| v != "cross-site");
-    let mut response = if !local || !origin_ok || !site_ok {
+    let response = if !local || !origin_ok || !site_ok {
         ApiError(
             StatusCode::FORBIDDEN,
             "Use the dashboard's loopback URL or an SSH port forward.",
         )
         .into_response()
-    } else if request.uri().path().starts_with("/api/")
-        && !authorized(request.headers(), &admin.token)
-    {
-        ApiError(StatusCode::UNAUTHORIZED, "Invalid administrator token.").into_response()
     } else {
+        if request.uri().path().starts_with("/api/") && request.uri().path() != "/api/auth/login" {
+            match admin
+                .auth
+                .authorize(request.headers(), request.uri().path())
+            {
+                Ok(session) => {
+                    request.extensions_mut().insert(session);
+                }
+                Err(error) => return secure_headers(error.into_response()),
+            }
+        }
         match tokio::time::timeout(Duration::from_secs(10), next.run(request)).await {
             Ok(response) => response,
             Err(_) => ApiError(
@@ -197,6 +202,9 @@ async fn guard(State(admin): State<Admin>, request: Request, next: Next) -> Resp
             .into_response(),
         }
     };
+    secure_headers(response)
+}
+fn secure_headers(mut response: Response) -> Response {
     let headers = response.headers_mut();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(
@@ -206,21 +214,6 @@ async fn guard(State(admin): State<Admin>, request: Request, next: Next) -> Resp
     headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
     headers.insert("content-security-policy", HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"));
     response
-}
-fn authorized(headers: &HeaderMap, expected: &[u8; 32]) -> bool {
-    let mut values = headers.get_all(header::AUTHORIZATION).iter();
-    let Some(value) = values
-        .next()
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-    else {
-        return false;
-    };
-    if values.next().is_some() || !(32..=256).contains(&value.len()) {
-        return false;
-    }
-    let actual: [u8; 32] = Sha256::digest(value.as_bytes()).into();
-    bool::from(actual.ct_eq(expected))
 }
 async fn static_file(State(admin): State<Admin>, request: Request) -> Response {
     if request.method() != axum::http::Method::GET && request.method() != axum::http::Method::HEAD {
@@ -453,6 +446,9 @@ async fn disconnect(State(admin): State<Admin>, Path(id): Path<u64>) -> ApiResul
 }
 fn router(admin: Admin) -> Router {
     Router::new()
+        .route("/api/auth/login", post(auth::login))
+        .route("/api/auth/logout", post(auth::logout))
+        .route("/api/auth/password", post(auth::password))
         .route("/api/state", get(state))
         .route("/api/users", post(create))
         .route("/api/users/{name}", put(edit).delete(delete))
@@ -479,7 +475,7 @@ pub(super) async fn serve(
     let admin = Admin {
         hub,
         metrics,
-        token: cfg.token()?,
+        auth: auth::Auth::open(cfg.clone()).await?,
         writer: Arc::new(Mutex::new(writer)),
         assets: Arc::new(assets(&cfg.assets_dir)?),
         info: Arc::new(

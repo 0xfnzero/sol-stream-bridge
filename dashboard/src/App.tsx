@@ -11,9 +11,11 @@ import {
   limitsFromForm,
   request,
   type Effective,
+  type LoginResult,
   type Snapshot,
   type User,
 } from "./api";
+import { PasswordForm, PasswordInput } from "./Account";
 
 type Page = "overview" | "users" | "subscriptions" | "access";
 const pages: { id: Page; title: string; icon: string }[] = [
@@ -115,26 +117,62 @@ const duration = (seconds: number) =>
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "操作失败，请重试。";
 
+type OperatorSession = LoginResult & { initial?: Snapshot };
 export default function App() {
-  const [session, setSession] = useState<{
-    token: string;
-    initial: Snapshot;
-  }>();
-  return session ? (
+  const [session, setSession] = useState<OperatorSession>();
+  const [notice, setNotice] = useState("");
+  const logout = () => {
+    if (session)
+      void request(session.token, "/api/auth/logout", "POST").catch(() => {});
+    setSession(undefined);
+  };
+  const passwordChanged = () => {
+    setSession(undefined);
+    setNotice("密码已更新，请使用新密码重新登录。其他登录会话已失效。");
+  };
+  if (!session)
+    return (
+      <Login
+        notice={notice}
+        onLogin={(value) => {
+          setNotice("");
+          setSession(value);
+        }}
+      />
+    );
+  if (session.must_change_password)
+    return (
+      <main className="login-page">
+        <div className="login-brand">
+          <Brand />
+        </div>
+        <section className="login-card password-card">
+          <h1>设置你的新密码</h1>
+          <p>账号 {session.username} · 首次登录需要修改初始密码。</p>
+          <PasswordForm token={session.token} onChanged={passwordChanged} />
+          <button className="text-button" onClick={logout}>
+            退出登录
+          </button>
+        </section>
+      </main>
+    );
+  return (
     <Console
       key={session.token}
       token={session.token}
-      initial={session.initial}
-      logout={() => setSession(undefined)}
+      username={session.username}
+      initial={session.initial!}
+      logout={logout}
+      passwordChanged={passwordChanged}
     />
-  ) : (
-    <Login onLogin={(token, initial) => setSession({ token, initial })} />
   );
 }
 function Login({
   onLogin,
+  notice,
 }: {
-  onLogin: (token: string, data: Snapshot) => void;
+  onLogin: (session: OperatorSession) => void;
+  notice: string;
 }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -142,16 +180,26 @@ function Login({
     e.preventDefault();
     setBusy(true);
     setError("");
-    const token = String(
-      new FormData(e.currentTarget).get("token") ?? "",
-    ).trim();
+    const values = new FormData(e.currentTarget);
+    const username = String(values.get("username") ?? "");
+    const password = String(values.get("password") ?? "");
     try {
-      const data = await request<Snapshot>(token, "/api/state");
-      onLogin(token, data);
+      const session = await request<LoginResult>(
+        "",
+        "/api/auth/login",
+        "POST",
+        { username, password },
+      );
+      const initial = session.must_change_password
+        ? undefined
+        : await request<Snapshot>(session.token, "/api/state");
+      onLogin({ ...session, initial });
     } catch (e) {
       setError(
-        e instanceof ApiError && e.status === 401
-          ? "管理员令牌无效，请检查后重试。"
+        e instanceof ApiError
+          ? e.status === 401
+            ? "账号或密码错误，请检查后重试。"
+            : e.message
           : "暂时无法连接管理服务，请确认服务已启动。",
       );
     } finally {
@@ -172,19 +220,38 @@ function Login({
           在一个地方掌握服务运行状态。
         </p>
         <form onSubmit={submit}>
-          <label htmlFor="token">管理员令牌</label>
+          <label htmlFor="login-username">账号</label>
           <input
-            id="token"
-            name="token"
-            type="password"
-            placeholder="输入 DASHBOARD_TOKEN"
-            autoComplete="off"
+            id="login-username"
+            name="username"
+            type="text"
+            autoComplete="username"
+            placeholder="输入安装时生成的账号"
             required
-            minLength={32}
-            maxLength={256}
+            maxLength={64}
             autoFocus
           />
-          <small>令牌仅保留在当前页面，刷新或退出后需要重新登录。</small>
+          <label className="password-label" htmlFor="login-password">
+            密码
+          </label>
+          <PasswordInput
+            label="密码"
+            id="login-password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            placeholder="输入密码"
+            required
+            maxLength={128}
+          />
+          <small>
+            初始账号和密码保存在服务器的 .dashboard-initial-credentials 文件中。
+          </small>
+          {notice && (
+            <div className="info-box" role="status">
+              {notice}
+            </div>
+          )}
           {error && (
             <div className="alert error" role="alert">
               {error}
@@ -208,6 +275,7 @@ function Login({
 }
 
 type ModalState =
+  | { type: "password" }
   | { type: "user"; user?: User; revision: string }
   | {
       type: "confirm";
@@ -226,10 +294,14 @@ function Console({
   token,
   initial,
   logout,
+  username,
+  passwordChanged,
 }: {
   token: string;
   initial: Snapshot;
   logout: () => void;
+  username: string;
+  passwordChanged: () => void;
 }) {
   const [data, setData] = useState(initial);
   const [page, setPage] = useState<Page>("overview");
@@ -409,9 +481,7 @@ function Console({
           >
             使用文档 <Icon name="arrow" size={14} />
           </a>
-          <div className="sidebar-version">
-            v{data.service.version}
-          </div>
+          <div className="sidebar-version">v{data.service.version}</div>
         </div>
       </aside>
       <div className="workspace">
@@ -433,8 +503,16 @@ function Console({
               <Icon name="refresh" />
             </button>
             <span className="divider" />
-            <span className="avatar">A</span>
-            <span className="admin-label">管理员</span>
+            <span className="avatar">{username.slice(0, 1).toUpperCase()}</span>
+            <span className="admin-label">{username}</span>
+            <button
+              className="icon-button"
+              aria-label="修改密码"
+              title="修改密码"
+              onClick={() => setModal({ type: "password" })}
+            >
+              <Icon name="key" />
+            </button>
             <button
               className="icon-button"
               title="退出登录"
@@ -798,6 +876,15 @@ function Console({
           </footer>
         </main>
       </div>
+      {modal?.type === "password" && (
+        <Dialog title="修改密码" close={() => !busy && setModal(undefined)}>
+          <PasswordForm
+            token={token}
+            onChanged={passwordChanged}
+            onWorking={setBusy}
+          />
+        </Dialog>
+      )}
       {modal?.type === "user" && (
         <UserDialog
           user={modal.user}
@@ -1298,7 +1385,7 @@ function SecretDialog({
         <p role="alert">浏览器未允许复制，请选中上方 Key 手动复制。</p>
       )}
       <div className="info-box">
-        客户端使用 api_key 或 x-token 传递此值。它与管理员令牌、供应商 Token
+        客户端使用 api_key 或 x-token 传递此值。它与面板登录凭据、供应商 Token
         相互独立。
       </div>
       <div className="modal-actions">
