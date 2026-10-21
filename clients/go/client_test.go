@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -167,5 +168,25 @@ func TestShredAllowlist(t *testing.T) {
 	case <-r.Packets:
 		t.Fatal("unexpected packet")
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestInvalidAPIKeyFailsBeforeDial(t *testing.T) {
+	t.Setenv("GO_TEST_EMPTY_KEY", "")
+	for _, cfg := range []YellowstoneConfig{
+		{APIKey: "contains space"},
+		{APIKey: "secret\n"},
+		{APIKey: string(make([]byte, 257))},
+		{APIKeyEnv: "GO_TEST_MISSING_BRIDGE_KEY"},
+		{APIKey: "secret", APIKeyEnv: "GO_TEST_EMPTY_KEY"},
+	} {
+		// No endpoint: credential validation must fail before endpoint validation.
+		_, err := Subscribe(context.Background(), cfg, DefaultRequest(nil))
+		if err == nil || (!strings.Contains(err.Error(), "API key") && !strings.Contains(err.Error(), "api_key")) {
+			t.Fatalf("expected credential error, got %v", err)
+		}
+		if strings.Contains(err.Error(), "secret") {
+			t.Fatal("credential in diagnostic")
+		}
 	}
 }

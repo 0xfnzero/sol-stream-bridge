@@ -4,6 +4,47 @@
 
 Rust, Go and TypeScript clients expose raw Shred packets and decoded Yellowstone `SubscribeUpdate` messages. They support complete subscription filters, filter replacement and automatic server-ping replies. Read [release notes](../RELEASE_NOTES.md) for package versions. Rust and npm clients are published as `stream-bridge-client`.
 
+## Shared-mode user keys (unreleased/main)
+
+Published **0.1.1** packages do not have the new `api_key` option. Use a local source dependency for this API, or use the existing `x-token` API with your **bridge user key** to access a shared receiver. The upstream provider token belongs on receiver B, not in the Bot. See [server configuration and limits](../docs/SHARED.md).
+
+All three source examples accept:
+
+```toml
+[yellowstone]
+endpoint = "http://127.0.0.1:10000"
+api_key = "" # empty/omitted sends no key; fill with your bridge user key
+# api_key_env = "BRIDGE_API_KEY" # alternative to a nonempty api_key
+transaction_accounts = []
+```
+
+Use `api_key` or `api_key_env`; a missing named environment variable fails before connection. An empty environment value sends no header. The server still requires a valid key if key verification is enabled. Alternatively `x_token_env` can contain the same bridge user key; if both headers are sent their values must agree.
+
+Bot integration with source clients:
+
+```rust,ignore
+let mut sub = YellowstoneSubscription::connect_with_api_key(
+    endpoint, None, tls, Some(user_key), request,
+).await?;
+let update = sub.next_update().await?;
+```
+
+```go
+sub, err := bridge.Subscribe(ctx, bridge.YellowstoneConfig{
+    Endpoint: "http://127.0.0.1:10000", APIKeyEnv: "BRIDGE_API_KEY",
+}, request)
+// Check err, defer sub.Close(), then sub.Recv() in the bot's receive loop.
+```
+
+```typescript
+const sub = await YellowstoneSubscription.connect(
+  { endpoint: "http://127.0.0.1:10000", api_key_env: "BRIDGE_API_KEY" }, request,
+);
+// for await (const update of sub) { ... }; close the subscription on exit.
+```
+
+Shared mode applies server permissions and limits to native filters. Account updates require permission, unfiltered transactions are rejected by default, commitment must match, and replay/data slices are unsupported. A rejection, slow consumer or upstream failure is reported to the Bot. Reconnect and resubscribe explicitly. TLS options refer to the receiver certificate in shared mode and to the provider certificate in passthrough mode. Raw Shred UDP has no API-key handshake.
+
 ## Run the examples
 
 Start the source and receiver bridge first. Configure `client.toml`:
@@ -12,7 +53,7 @@ Start the source and receiver bridge first. Configure `client.toml`:
 - `shred.allowed_sources`: actual source IP; use loopback if receiving via a local forwarder. Empty UDP lists allow all.
 - `yellowstone.endpoint`: receiver's gRPC listener, usually `http://127.0.0.1:10000`, not the tunnel port.
 - The receiver's `grpc.allowed_sources` must include the Bot IP.
-- `yellowstone.x_token_env`: optional environment variable holding the upstream Yellowstone token, distinct from `BRIDGE_TOKEN`.
+- `yellowstone.x_token_env`: optional token environment variable: provider token in passthrough, user key in shared mode; distinct from `BRIDGE_TOKEN`.
 - `transaction_accounts`: default empty means slots only; add accounts to subscribe to matching transactions too.
 
 From the repository root:
@@ -131,7 +172,7 @@ try {
 - EOF/errors are exposed. Clients do not silently reconnect, replay or hide gaps; reopen and resend filters according to your Bot's recovery policy.
 - Use `http://IP:port` when the upstream supports plaintext; `https://` authenticates a TLS upstream Yellowstone service. `tls_domain` overrides its certificate domain; `ca_file` supplies a private CA PEM, relative to the working directory. These settings are independent of the bridge tunnel: private templates use plaintext TCP, while public templates use TLS.
 - Received gRPC messages are limited to 64 MiB.
-- Rust uses proto 12.x; Go pins upstream generated code; TypeScript uses grpc-js-compatible SDK 4.x protobuf. Unknown newer fields require upgrading the corresponding client dependency; the transparent bridge itself is not tied to those protobuf versions.
+- Rust uses proto 12.x; Go pins upstream generated code; TypeScript uses grpc-js-compatible SDK 4.x protobuf. Unknown newer fields require upgrading the corresponding client dependency; passthrough is independent of protobuf versions; shared mode uses the server's proto 12.x schema.
 
 ## Verification
 

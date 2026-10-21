@@ -22,3 +22,7 @@ Run the included receiver with `npx stream-bridge-client /path/to/client.toml`. 
 [English integration guide](https://github.com/0xfnzero/sol-stream-bridge/blob/main/clients/README.md) · [中文指南](https://github.com/0xfnzero/sol-stream-bridge/blob/main/clients/README_CN.md)
 
 Use `parseClientConfig(parsedTomlOrJson)` for configuration loaded from files. Unknown keys and invalid types are rejected; `bind` and `connect` also validate direct API input. IP allowlists match all equivalent IPv4-mapped IPv6 forms.
+
+## Unreleased: shared receiver API Keys
+
+Source on `main` supports optional bridge user keys. Published v0.1.1 does not include the new `api_key` API. Set `api_key` or `api_key_env` in the Yellowstone config using a local source dependency. Empty values send no key. A standard Yellowstone `x-token` carrying the same bridge user key also works with a shared receiver, including from existing clients. The provider token stays on the server. IP allowlists and user quotas still apply. See the [shared mode guide](https://github.com/0xfnzero/sol-stream-bridge/blob/main/docs/SHARED.md).

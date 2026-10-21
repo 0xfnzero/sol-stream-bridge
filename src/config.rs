@@ -1,9 +1,37 @@
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::{
+    collections::BTreeMap,
     net::{IpAddr, SocketAddr},
     path::Path,
 };
+
+#[derive(Clone, Default, Deserialize)]
+#[serde(transparent)]
+pub struct ApiKeys(pub BTreeMap<String, String>);
+impl std::fmt::Debug for ApiKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ApiKeys(<redacted>)")
+    }
+}
+impl ApiKeys {
+    pub fn enabled(&self) -> bool {
+        self.0.values().any(|key| !key.is_empty())
+    }
+    pub fn validate(&self) -> Result<()> {
+        let mut used = std::collections::HashSet::new();
+        if self.0.len() > 1024 {
+            bail!("at most 1024 API key entries are supported");
+        }
+        for key in self.0.values() {
+            stream_bridge_client::auth::validate_api_key(key)?;
+            if !key.is_empty() && !used.insert(key) {
+                bail!("API keys must be unique per user");
+            }
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,6 +72,10 @@ pub struct Grpc {
     #[serde(default)]
     pub allowed_sources: Vec<IpAddr>,
     #[serde(default)]
+    pub api_keys: ApiKeys,
+    /// Enable one shared Yellowstone Subscribe stream instead of TCP passthrough.
+    pub shared: Option<crate::shared::SharedConfig>,
+    #[serde(default)]
     pub insecure: bool,
     pub cert_file: Option<String>,
     pub key_file: Option<String>,
@@ -78,7 +110,14 @@ fn tunnel_open_timeout_ms() -> u64 {
 }
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
-        let c: Self = toml::from_str(&std::fs::read_to_string(path)?)?;
+        let c: Self =
+            toml::from_str(&std::fs::read_to_string(path)?).map_err(|error: toml::de::Error| {
+                // TOML diagnostics can quote the source line, including literal API keys.
+                anyhow::anyhow!(
+                    "invalid configuration syntax or field types at {:?}",
+                    error.span()
+                )
+            })?;
         c.validate()?;
         Ok(c)
     }
@@ -108,6 +147,21 @@ impl Config {
         }
         if let Some(g) = &self.grpc {
             g.token()?;
+            g.api_keys.validate()?;
+            if let Some(shared) = &g.shared {
+                if self.role != Role::Receiver {
+                    bail!("grpc.shared belongs on the receiver");
+                }
+                shared.validate()?;
+                if shared.client_tls && (g.cert_file.is_none() || g.key_file.is_none()) {
+                    bail!("shared.client_tls requires grpc.cert_file and grpc.key_file");
+                }
+            } else if g.api_keys.enabled() {
+                bail!("configure [grpc.shared] to enable client API key authentication");
+            }
+            if self.role == Role::Source && g.api_keys.enabled() {
+                bail!("grpc.api_keys belongs on the receiver, not the source");
+            }
             if g.idle_tunnels == 0
                 || g.idle_tunnels > 1024
                 || g.max_connections == 0

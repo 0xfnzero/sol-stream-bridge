@@ -1,3 +1,11 @@
+# Unreleased / 尚未发布
+
+- Shared Yellowstone mode merges multiple users into one upstream Subscribe stream and routes labelled updates back to their own filters.
+- Optional per-user `x-token` / `x-api-key` authentication combines with IP allowlists. Empty key configuration disables only key checks.
+- Per-user and global subscription/filter/account limits, account-update permissions (default off), bounded fanout queues and loopback Prometheus metrics.
+- Rust, Go and TypeScript source clients add optional `api_key` support. These changes are not included in published v0.1.1 packages or binaries.
+- 新增共享上游、用户 Key/IP 双重校验、累计额度、账户更新权限与连接统计；当前需源码构建。详见 [共享订阅说明](docs/SHARED_CN.md)。
+
 # v0.1.1
 
 Server binaries and Rust, Go and TypeScript Bot clients are versioned together at **0.1.1**.

@@ -26,6 +26,7 @@ Current release: **[v0.1.1](https://github.com/0xfnzero/sol-stream-bridge/releas
 ## Contents
 
 - [Features](#features)
+- [Shared subscriptions and API Keys](#shared)
 - [Script installation](#installation)
 - [Configuration and startup](#quick-start)
 - [Private networks](#private-network)
@@ -39,12 +40,46 @@ Current release: **[v0.1.1](https://github.com/0xfnzero/sol-stream-bridge/releas
 
 1. Multiple UDP listeners and destinations; forwards original Shred payloads without changing datagram boundaries.
 2. Accepts Jito proxy UDP output and raw Shred pushed directly to an IP and port.
-3. Reverse TCP tunnels preserve Yellowstone HTTP/2, bidirectional subscriptions, filter updates, ping, metadata and x-token.
+3. Default passthrough reverse TCP tunnels preserve Yellowstone HTTP/2, bidirectional subscriptions, filter updates, ping, metadata and x-token.
 4. Receiver-side gRPC IP allowlists reject unauthorized clients before opening an upstream tunnel. Empty lists deny everyone.
 5. Public-network templates use TLS and shared-token authentication. The source's Yellowstone port need not be public.
 6. Trusted private-network templates use plaintext TCP with shared tokens and client IP allowlists; Shred uses UDP.
 7. Rust and Go channels / TypeScript async iterators deliver raw Shred; all three expose typed Yellowstone updates.
 8. Prebuilt installers, checksum verification, configuration-preserving upgrades, optional systemd service, counters and connection limits.
+
+<a id="shared"></a>
+## Shared subscriptions and API Keys (unreleased)
+
+Source on `main` adds **one upstream subscription for multiple users**, optional API Keys (`x-token` or `x-api-key`), IP checks, per-user quotas and account-update permissions. Released **v0.1.1 does not include these features**. Build from source; see the [complete configuration and operating guide](docs/SHARED.md).
+
+Add to receiver B's configuration (keep its existing tunnel fields):
+
+```toml
+[grpc]
+# Existing tunnel/listen/TLS fields remain here.
+allowed_sources = ["127.0.0.1", "10.0.0.30"]
+api_keys = { alice = "replace-with-random-secret" } # {} disables key checks
+
+[grpc.shared]
+upstream_endpoint = "http://yellowstone"
+# upstream_x_token_env = "YELLOWSTONE_X_TOKEN" # provider token, on B only
+max_subscriptions_per_key = 1
+max_filters = 64
+max_accounts = 512
+allow_accounts = false
+allow_unfiltered = false
+metrics_listen = "127.0.0.1:9090"
+
+[grpc.shared.users.alice]
+max_subscriptions = 1
+max_filters = 4
+max_accounts = 32
+allow_accounts = false
+```
+
+The Bot sends Alice's key; the provider credential stays on B. IP and Key checks both apply. `{}` or all-empty keys disable only Key checks. Account/owner updates are disabled by default, with per-user opt-in. User filter/account caps apply across that user's streams; upstream caps apply after deduplicating identical filters. Limits should match your provider's plan.
+
+For a provider limited to one connection, also set `[grpc] max_connections = 1` on source A to bound connections during teardown/reconnect. Use `http://IP:port` on trusted private networks. Client-facing TLS is optional and independent of tunnel/provider TLS. Full example: [config.shared-receiver.toml](config.shared-receiver.toml). Omit `[grpc.shared]` to retain TCP passthrough. Shared mode supports Subscribe/Ping/GetVersion with a fixed commitment; other RPCs, replay and data slices are outside its current scope.
 
 <a id="installation"></a>
 ## Script installation
@@ -158,7 +193,7 @@ Rust can embed the receiver inside a Bot process. Go and TypeScript clients conn
 - UDP is best effort. No Shred reconstruction, FEC, deduplication or transaction decoding is performed. Full Bot queues drop new packets and count them.
 - The upstream Jito proxy handles its own authentication and subscription. This tool consumes available UDP output; it cannot restore discontinued upstream services.
 - gRPC data follows client subscriptions. Idle tunnels reconnect automatically; interrupted subscriptions must be reopened by the Bot. No historical replay is performed.
-- `BRIDGE_TOKEN` authenticates the bridge tunnel, not Yellowstone clients. Client-to-receiver encryption depends on the upstream Yellowstone service's own TLS configuration.
+- `BRIDGE_TOKEN` authenticates the bridge tunnel, not Yellowstone clients. In passthrough, client encryption follows upstream TLS. In shared mode, receiver `client_tls` controls it.
 - Allowlists check the socket peer IP. Behind NAT, use the translated address; through a proxy, only the proxy IP is visible.
 - See [deployment details](docs/DEPLOYMENT.md) for ports, TLS, queues and operating limits.
 
@@ -178,6 +213,8 @@ cargo clippy --all-targets --all-features --locked -- -D warnings
 (cd clients/typescript && npm ci && npm test)
 python3 tools/smoke_clients.py
 python3 tools/smoke_clients.py --plaintext
+python3 tools/smoke_clients.py --shared
+python3 tools/smoke_clients.py --shared --plaintext
 python3 -m unittest discover -s tests -p 'test_install.py'
 ```
 

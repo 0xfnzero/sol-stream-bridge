@@ -9,6 +9,8 @@ export interface ShredConfig {
 export interface YellowstoneConfig {
   endpoint: string;
   x_token_env?: string;
+  api_key?: string;
+  api_key_env?: string;
   tls_domain?: string;
   ca_file?: string;
   transaction_accounts?: string[];
@@ -42,11 +44,16 @@ export function validateShredConfig(value: unknown): asserts value is ShredConfi
   }
 }
 export function validateYellowstoneConfig(value: unknown): asserts value is YellowstoneConfig {
-  object(value, ["endpoint", "x_token_env", "tls_domain", "ca_file", "transaction_accounts"], "yellowstone");
+  object(value, ["endpoint", "x_token_env", "api_key", "api_key_env", "tls_domain", "ca_file", "transaction_accounts"], "yellowstone");
   string(value.endpoint, "yellowstone.endpoint");
   for (const key of ["x_token_env", "tls_domain", "ca_file"]) {
     if (value[key] !== undefined) string(value[key], `yellowstone.${key}`);
   }
+  for (const key of ["api_key", "api_key_env"]) {
+    if (value[key] !== undefined && typeof value[key] !== "string") throw new Error(`yellowstone.${key} must be a string`);
+  }
+  if (value.api_key && value.api_key_env) throw new Error("set api_key or api_key_env, not both");
+  if (typeof value.api_key === "string") validateApiKey(value.api_key);
   if (value.transaction_accounts !== undefined) strings(value.transaction_accounts, "yellowstone.transaction_accounts");
 }
 
@@ -56,4 +63,14 @@ export function parseClientConfig(value: unknown): ClientConfig {
   validateShredConfig(value.shred);
   validateYellowstoneConfig(value.yellowstone);
   return { shred: value.shred, yellowstone: value.yellowstone };
+}
+
+function validateApiKey(key: string): void {
+  if (!/^[\x21-\x7e]{0,256}$/.test(key)) throw new Error("API key must contain at most 256 visible ASCII bytes");
+}
+export function resolveApiKey(config: YellowstoneConfig): string {
+  const key = config.api_key_env ? process.env[config.api_key_env] : (config.api_key ?? "");
+  if (key === undefined) throw new Error("Missing API key environment variable");
+  validateApiKey(key);
+  return key;
 }

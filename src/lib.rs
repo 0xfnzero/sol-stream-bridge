@@ -1,5 +1,7 @@
 pub use stream_bridge_client as bot;
+mod client_auth;
 pub mod config;
+pub mod shared;
 pub mod tunnel;
 pub mod udp;
 

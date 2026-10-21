@@ -19,6 +19,13 @@ include = ["/src/**", "/examples/**", "/tests/*.rs", "/Cargo.toml", "/Cargo.lock
 [dependencies]
 stream-bridge-client = { version = "0.1.1", path = "clients/rust" }
 anyhow = "1"
+base64 = "0.22"
+bs58 = "0.5"
+async-stream = "0.3"
+futures = "0.3"
+hyper-util = { version = "0.1", features = ["tokio"] }
+tower = { version = "0.5", features = ["util"] }
+yellowstone-grpc-client = "12.2"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
@@ -43,11 +50,10 @@ lto = "thin"
 codegen-units = 1
 
 [features]
-yellowstone = ["stream-bridge-client/yellowstone", "dep:yellowstone-grpc-proto"]
+yellowstone = ["stream-bridge-client/yellowstone"]
 
 [dependencies.yellowstone-grpc-proto]
 version = "12.7"
-optional = true
 
 [[example]]
 name = "bot"

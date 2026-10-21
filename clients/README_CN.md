@@ -11,6 +11,30 @@
 
 Shred 是原始数据，不是交易对象；Bot 需要将字节包交给自己的 shred 重组/解析器。交易消息可直接从 Yellowstone 的 transaction 字段获取。客户端不会执行交易或调用交易策略，示例标注了接入策略的位置。
 
+## 共享模式用户 Key（main，尚未发布）
+
+已发布的 **0.1.1** 包没有新增的 `api_key` 参数。使用本地源码依赖可调用新 API；已有 `x-token` API 也可以直接传入**桥接用户的 Key**连接共享接收端。供应商 Token 只配置在 B，不放进 Bot。详见 [服务端配置与额度](../docs/SHARED_CN.md)。
+
+三语言源码示例都支持：
+
+```toml
+[yellowstone]
+endpoint = "http://127.0.0.1:10000"
+api_key = "" # 留空/省略不发送；服务端开启验证时须填写用户 Key
+# api_key_env = "BRIDGE_API_KEY" # 与非空 api_key 二选一
+transaction_accounts = []
+```
+
+指定但不存在的环境变量会在连接前报错，环境变量值为空则不发送 Key。也可用 `x_token_env` 保存同一个桥接用户 Key；两种头同时发送时值必须相同。
+
+Bot 集成源码 SDK：
+
+- Rust：`YellowstoneSubscription::connect_with_api_key(endpoint, None, tls, Some(user_key), request).await?`，随后 `next_update().await?` 读取结构化消息。
+- Go：在 `bridge.YellowstoneConfig` 设置 `APIKey` 或 `APIKeyEnv`，调用 `Subscribe` 后通过 `Recv()` 获取消息。
+- TypeScript：在 `YellowstoneSubscription.connect` 的配置中设置 `api_key` 或 `api_key_env`，继续用 `for await` 接收消息。
+
+共享模式会按服务端策略校验原生过滤器：账户更新需要权限，默认拒绝全量交易，commitment 必须匹配，不支持回放/切片。拒绝、慢客户端和上游失败会返回给 Bot，应自行重连并重新订阅。共享模式的客户端 TLS 参数验证 B 的证书；透传模式验证供应商证书。原始 UDP Shred 不使用 API Key 握手。
+
 ## 先运行接收示例
 
 三种示例共用本目录的 `client.toml`。先启动发送端和接收端桥接，再配置：
@@ -19,7 +43,7 @@ Shred 是原始数据，不是交易对象；Bot 需要将字节包交给自己�
 2. `[shred].allowed_sources`：填实际数据包来源 IP。直接接收填发送机出口/私网 IP；通过本机转发填 `127.0.0.1`。UDP 空列表允许任意来源。
 3. `[yellowstone].endpoint`：接收端 gRPC `listen` 地址，例如 `http://127.0.0.1:10000`，不是 `19000` 隧道端口。
 4. 接收端 `[grpc].allowed_sources` 必须允许 Bot 的 IP。这里的客户端配置不能绕过服务端白名单。
-5. 上游需要认证时设置 `x_token_env`，在环境变量中提供 Yellowstone 的 x-token。该令牌与桥接两端的 `BRIDGE_TOKEN` 不同。
+5. 透传模式上游需要认证时设置 `x_token_env` 为供应商 Token；共享模式中此字段可传桥接用户 Key。该令牌与桥接两端的 `BRIDGE_TOKEN` 不同。
 6. 默认订阅 slot；`transaction_accounts` 填关注账户后同时订阅相关交易。要订阅账户/块/entry 等，集成时传入完整的原生 `SubscribeRequest`。
 
 以下命令从 `stream-bridge` 根目录开始。先把配置中的示例 IP 改为实际 IP。示例持续打印实际接收的数据；没有真实发送源时不会凭空产生数据。

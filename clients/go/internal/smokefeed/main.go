@@ -20,13 +20,24 @@ func (feed) Subscribe(stream pb.Geyser_SubscribeServer) error {
 	if len(md.Get("x-token")) != 1 || md.Get("x-token")[0] != "smoke-token" {
 		return status.Error(codes.Unauthenticated, "token missing")
 	}
-	if _, err := stream.Recv(); err != nil {
+	if len(md.Get("x-api-key")) != 0 {
+		return status.Error(codes.Unauthenticated, "downstream key leaked upstream")
+	}
+	request, err := stream.Recv()
+	if err != nil {
 		return err
 	}
-	// Drain requests so client cancellation and request-side flow control remain normal.
+	requests := make(chan *pb.SubscribeRequest, 1)
 	go func() {
+		defer close(requests)
 		for {
-			if _, err := stream.Recv(); err != nil {
+			r, err := stream.Recv()
+			if err != nil {
+				return
+			}
+			select {
+			case requests <- r:
+			case <-stream.Context().Done():
 				return
 			}
 		}
@@ -37,11 +48,27 @@ func (feed) Subscribe(stream pb.Geyser_SubscribeServer) error {
 		select {
 		case <-stream.Context().Done():
 			return stream.Context().Err()
+		case r, ok := <-requests:
+			if !ok {
+				requests = nil
+				continue
+			}
+			if r.Ping == nil {
+				request = r
+			}
 		case <-ticker.C:
-			if err := stream.Send(&pb.SubscribeUpdate{UpdateOneof: &pb.SubscribeUpdate_Slot{Slot: &pb.SubscribeUpdateSlot{Slot: 4242}}}); err != nil {
+			slots := make([]string, 0, len(request.Slots))
+			for name := range request.Slots {
+				slots = append(slots, name)
+			}
+			transactions := make([]string, 0, len(request.Transactions))
+			for name := range request.Transactions {
+				transactions = append(transactions, name)
+			}
+			if err := stream.Send(&pb.SubscribeUpdate{Filters: slots, UpdateOneof: &pb.SubscribeUpdate_Slot{Slot: &pb.SubscribeUpdateSlot{Slot: 4242}}}); err != nil {
 				return err
 			}
-			if err := stream.Send(&pb.SubscribeUpdate{UpdateOneof: &pb.SubscribeUpdate_Transaction{Transaction: &pb.SubscribeUpdateTransaction{Slot: 4242, Transaction: &pb.SubscribeUpdateTransactionInfo{Signature: []byte{1, 2, 3}}}}}); err != nil {
+			if err := stream.Send(&pb.SubscribeUpdate{Filters: transactions, UpdateOneof: &pb.SubscribeUpdate_Transaction{Transaction: &pb.SubscribeUpdateTransaction{Slot: 4242, Transaction: &pb.SubscribeUpdateTransactionInfo{Signature: []byte{1, 2, 3}}}}}); err != nil {
 				return err
 			}
 		}

@@ -1,4 +1,5 @@
 //! Bot-facing raw UDP reception. A bounded channel prevents unbounded memory use.
+pub mod auth;
 use anyhow::{ensure, Result};
 use serde::Deserialize;
 use std::{
@@ -143,13 +144,26 @@ pub mod yellowstone {
     }
     impl YellowstoneSubscription {
         /// Connect to the receiver's gRPC listen endpoint, not its tunnel port.
-        /// TLS here authenticates the upstream Yellowstone service, not the bridge tunnel.
+        /// TLS authenticates the receiver in shared mode, or Yellowstone in passthrough mode.
         pub async fn connect(
             endpoint: String,
             x_token: Option<String>,
             tls: Option<ClientTlsConfig>,
             request: SubscribeRequest,
         ) -> Result<Self> {
+            Self::connect_with_api_key(endpoint, x_token, tls, None, request).await
+        }
+        /// Optional bridge key sent as x-api-key. In shared mode omit x_token,
+        /// or set it to the same user key. The provider token stays on the server.
+        pub async fn connect_with_api_key(
+            endpoint: String,
+            x_token: Option<String>,
+            tls: Option<ClientTlsConfig>,
+            api_key: Option<String>,
+            request: SubscribeRequest,
+        ) -> Result<Self> {
+            let api_key = api_key.unwrap_or_default();
+            crate::auth::validate_api_key(&api_key)?;
             let mut builder =
                 yellowstone_grpc_client::GeyserGrpcClient::build_from_shared(endpoint)?
                     .x_token(x_token)?
@@ -158,8 +172,27 @@ pub mod yellowstone {
             if let Some(tls) = tls {
                 builder = builder.tls_config(tls)?;
             }
-            let mut client = builder.connect().await?;
-            let (requests, updates) = client.subscribe_with_request(Some(request)).await?;
+            let channel = builder.endpoint.connect().await?;
+            let api_key: Option<yellowstone_grpc_proto::tonic::metadata::MetadataValue<_>> =
+                (!api_key.is_empty()).then(|| api_key.parse()).transpose()?;
+            let mut upstream_token = yellowstone_grpc_client::InterceptorXToken {
+                x_token: builder.x_token,
+                x_request_snapshot: false,
+            };
+            let interceptor = move |request| {
+                use yellowstone_grpc_client::Interceptor;
+                let mut request = upstream_token.call(request)?;
+                if let Some(key) = api_key.clone() {
+                    request.metadata_mut().insert("x-api-key", key);
+                }
+                Ok(request)
+            };
+            let mut client =
+                prelude::geyser_client::GeyserClient::with_interceptor(channel, interceptor)
+                    .max_decoding_message_size(64 * 1024 * 1024);
+            let (mut requests, requests_rx) = futures::channel::mpsc::unbounded();
+            requests.start_send(request)?;
+            let updates = client.subscribe(requests_rx).await?.into_inner();
             Ok(Self {
                 requests: Box::pin(requests),
                 updates: Box::pin(updates.map(|r| r.map_err(Into::into))),

@@ -11,3 +11,7 @@ Import as `bridge "github.com/0xfnzero/stream-bridge/clients/go"`.
 Runnable example: `go run ./examples/receive ../client.toml` from the repository's `clients/go` directory.
 
 [English integration guide](https://github.com/0xfnzero/sol-stream-bridge/blob/main/clients/README.md) · [中文指南](https://github.com/0xfnzero/sol-stream-bridge/blob/main/clients/README_CN.md)
+
+## Unreleased: shared receiver API Keys
+
+Source on `main` supports optional bridge user keys. Published v0.1.1 does not include the new `api_key` API. Set `YellowstoneConfig.APIKey` or `APIKeyEnv` using a local source dependency. Empty values send no key. A standard Yellowstone `x-token` carrying the same bridge user key also works with a shared receiver, including from existing clients. The provider token stays on the server. IP allowlists and user quotas still apply. See the [shared mode guide](https://github.com/0xfnzero/sol-stream-bridge/blob/main/docs/SHARED.md).

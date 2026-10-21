@@ -21,9 +21,10 @@ use tokio_rustls::{
 };
 use tracing::{info, warn};
 
-trait Transport: AsyncRead + AsyncWrite + Unpin + Send {}
+pub(crate) trait Transport: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Transport for T {}
-type Pipe = Box<dyn Transport>;
+pub(crate) type Pipe = Box<dyn Transport>;
+pub(crate) type TunnelPool = Arc<Mutex<mpsc::Receiver<Pipe>>>;
 const MAGIC: &[u8; 8] = b"SGBR0001";
 const AUTH_OK: u8 = 1;
 const OPEN: u8 = 2;
@@ -77,6 +78,12 @@ pub fn validate_tls(g: &Grpc, source: bool) -> Result<()> {
         }
     } else {
         acceptor(g)?;
+        crate::shared::validate_upstream(g)?;
+        if g.insecure && g.shared.as_ref().is_some_and(|shared| shared.client_tls) {
+            let mut client_tls = g.clone();
+            client_tls.insecure = false;
+            acceptor(&client_tls)?;
+        }
     }
     Ok(())
 }
@@ -173,6 +180,36 @@ pub async fn source(g: Grpc) -> Result<()> {
     bail!("source worker exited unexpectedly")
 }
 
+pub(crate) async fn open_tunnel(
+    pool: TunnelPool,
+    wait: Duration,
+    open_timeout: Duration,
+) -> Result<Pipe> {
+    timeout(wait, async {
+        loop {
+            let mut pipe = pool
+                .lock()
+                .await
+                .recv()
+                .await
+                .context("tunnel pool closed")?;
+            let ready = timeout(open_timeout, async {
+                pipe.write_u8(OPEN).await?;
+                pipe.flush().await?;
+                if pipe.read_u8().await? != READY {
+                    bail!("invalid tunnel READY");
+                }
+                Ok::<_, anyhow::Error>(())
+            })
+            .await;
+            if matches!(ready, Ok(Ok(()))) {
+                return Ok(pipe);
+            }
+        }
+    })
+    .await?
+}
+
 pub async fn receiver(g: Grpc) -> Result<()> {
     let tls = acceptor(&g)?;
     let token: [u8; 32] = Sha256::digest(g.token()?.as_bytes()).into();
@@ -182,8 +219,19 @@ pub async fn receiver(g: Grpc) -> Result<()> {
     let rx = Arc::new(Mutex::new(rx));
     let handshake_slots = Arc::new(Semaphore::new(g.idle_tunnels + 32));
     let client_slots = Arc::new(Semaphore::new(g.max_connections));
-    let mut tasks = JoinSet::new();
+    let mut tasks = JoinSet::<Result<()>>::new();
     info!(tunnel = %tunnels.local_addr()?, grpc = %clients.local_addr()?, "receiver ready");
+    let clients = if g.shared.is_some() {
+        let (g, rx) = (g.clone(), rx.clone());
+        tasks.spawn(async move {
+            crate::shared::serve(g, clients, rx).await?;
+            bail!("shared gRPC server exited")
+        });
+        None
+    } else {
+        Some(clients)
+    };
+
     loop {
         tokio::select! {
             accepted = tunnels.accept() => {
@@ -203,10 +251,11 @@ pub async fn receiver(g: Grpc) -> Result<()> {
                         Ok(Ok(pipe)) => { let _ = tx.send(pipe).await; }
                         other => warn!(%peer, error = ?other.err().map(|e| e.to_string()).unwrap_or_else(|| "authentication/TLS failed".into()), "tunnel rejected"),
                     }
+                    Ok(())
                 });
             }
-            accepted = clients.accept() => {
-                let (mut client, peer) = accepted?;
+            accepted = async { clients.as_ref().unwrap().accept().await }, if clients.is_some() => {
+                let (client, peer) = accepted?;
                 // Reject before consuming a connection slot or opening any upstream tunnel.
                 if !g.allows_client(peer.ip()) {
                     tracing::debug!(%peer, "gRPC client denied by IP allowlist");
@@ -219,31 +268,20 @@ pub async fn receiver(g: Grpc) -> Result<()> {
                 let open_timeout = Duration::from_millis(g.tunnel_open_timeout_ms).min(d / 2);
                 tasks.spawn(async move {
                     let _permit = permit;
+                    let mut client = client;
                     // Discard stale idle tunnels, but never replay application data.
-                    let selected = timeout(d, async {
-                        loop {
-                            let mut pipe = rx.lock().await.recv().await.context("tunnel pool closed")?;
-                            let ready = timeout(open_timeout, async {
-                                pipe.write_u8(OPEN).await?;
-                                pipe.flush().await?;
-                                if pipe.read_u8().await? != READY { bail!("invalid tunnel READY"); }
-                                Ok::<_, anyhow::Error>(())
-                            }).await;
-                            if matches!(ready, Ok(Ok(()))) {
-                                return Ok::<_, anyhow::Error>(pipe);
-                            }
-                        }
-                    }).await;
+                    let selected = open_tunnel(rx, d, open_timeout).await;
                     match selected {
-                        Ok(Ok(mut pipe)) => {
+                        Ok(mut pipe) => {
                             if let Err(error) = tokio::io::copy_bidirectional(&mut client, &mut pipe).await { warn!(%peer, %error, "client relay ended"); }
                         }
                         _ => warn!(%peer, "no ready source tunnel before timeout"),
                     }
+                    Ok(())
                 });
             }
             result = tasks.join_next(), if !tasks.is_empty() => {
-                if let Some(Err(error)) = result { return Err(error.into()); }
+                if let Some(result) = result { result??; }
             }
         }
     }

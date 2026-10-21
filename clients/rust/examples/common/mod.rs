@@ -10,6 +10,8 @@ use stream_bridge_client::{
 pub struct SubscriptionConfig {
     endpoint: String,
     x_token_env: Option<String>,
+    api_key: Option<String>,
+    api_key_env: Option<String>,
     /// Optional upstream certificate domain when connecting through a local endpoint.
     tls_domain: Option<String>,
     ca_file: Option<String>,
@@ -40,6 +42,15 @@ async fn receive_shreds(shreds: &mut ShredReceiver) -> Result<()> {
 }
 
 async fn receive_yellowstone(cfg: SubscriptionConfig) -> Result<()> {
+    let api_key = if let Some(name) = cfg.api_key_env.filter(|s| !s.is_empty()) {
+        anyhow::ensure!(
+            cfg.api_key.as_deref().unwrap_or("").is_empty(),
+            "set api_key or api_key_env, not both"
+        );
+        Some(std::env::var(name).context("missing API key environment variable")?)
+    } else {
+        cfg.api_key
+    };
     let x_token = cfg.x_token_env.map(std::env::var).transpose()?;
     let tls = if cfg.endpoint.starts_with("https://") {
         let mut tls = ClientTlsConfig::new().with_native_roots();
@@ -79,10 +90,11 @@ async fn receive_yellowstone(cfg: SubscriptionConfig) -> Result<()> {
     // Initial retries run alongside UDP reception.
     let mut attempts = 0;
     let mut grpc = loop {
-        match YellowstoneSubscription::connect(
+        match YellowstoneSubscription::connect_with_api_key(
             cfg.endpoint.clone(),
             x_token.clone(),
             tls.clone(),
+            api_key.clone(),
             request.clone(),
         )
         .await

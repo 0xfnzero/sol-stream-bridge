@@ -109,3 +109,44 @@ test("Yellowstone delivers decoded updates, token, ping, filter changes and EOF"
     assert.equal((await sub.next()).done,true);
   } finally {sub?.close();server.forceShutdown();delete process.env.TS_TEST_X_TOKEN;}
 });
+
+
+test("API key config validates before connecting without leaking values", async () => {
+  for (const config of [
+    { api_key: "secret\n" }, { api_key: "with space" }, { api_key: "x".repeat(257) },
+    { api_key_env: "TS_TEST_MISSING_BRIDGE_KEY" }, { api_key: "secret", api_key_env: "SOME_KEY" },
+  ]) {
+    await assert.rejects(YellowstoneSubscription.connect({ endpoint: "http://127.0.0.1:1", ...config }, defaultRequest()),
+      (error: Error) => /API key|api_key/.test(error.message) && !error.message.includes("secret"));
+  }
+});
+
+test("API keys reach gRPC metadata; empty keys omit the header", {timeout:10000}, async () => {
+  const server = new Server();
+  let expected: string[] = [];
+  server.addService({subscribe:{
+    path:"/geyser.Geyser/Subscribe",requestStream:true,responseStream:true,
+    requestSerialize:(r:SubscribeRequest)=>Buffer.from(SubscribeRequest.encode(r).finish()),
+    requestDeserialize:(b:Buffer)=>SubscribeRequest.decode(b),
+    responseSerialize:(r:SubscribeUpdate)=>Buffer.from(SubscribeUpdate.encode(r).finish()),
+    responseDeserialize:(b:Buffer)=>SubscribeUpdate.decode(b),
+  }},{subscribe:(call:ServerDuplexStream<SubscribeRequest,SubscribeUpdate>)=>{
+    assert.deepEqual(call.metadata.get("x-api-key"),expected);
+    assert.deepEqual(call.metadata.get("x-token"),[]);
+    call.once("data",()=>{call.write(SubscribeUpdate.fromPartial({slot:{slot:"42"}}));call.end();});
+  }});
+  const port=await new Promise<number>((resolve,reject)=>server.bindAsync("127.0.0.1:0",ServerCredentials.createInsecure(),(error,port)=>error?reject(error):resolve(port)));
+  process.env.TS_TEST_API_KEY="bot-secret";
+  process.env.TS_TEST_EMPTY_API_KEY="";
+  try {
+    for(const [config, values] of [
+      [{api_key:""},[]], [{api_key:"bot-secret"},["bot-secret"]],
+      [{api_key_env:"TS_TEST_API_KEY"},["bot-secret"]], [{api_key_env:"TS_TEST_EMPTY_API_KEY"},[]],
+    ] as const) {
+      expected=[...values];
+      const sub=await YellowstoneSubscription.connect({endpoint:`http://127.0.0.1:${port}`,...config},defaultRequest());
+      try { assert.equal((await sub.next()).value?.slot?.slot,"42"); }
+      finally {sub.close();}
+    }
+  } finally {server.forceShutdown();delete process.env.TS_TEST_API_KEY;delete process.env.TS_TEST_EMPTY_API_KEY;}
+});

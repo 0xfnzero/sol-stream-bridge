@@ -26,6 +26,7 @@ Go 保留已发布版本的原始 module 路径，安装和 import 按下方示�
 ## 目录
 
 - [项目特性](#features)
+- [共享订阅与 API Key](#shared)
 - [脚本安装](#installation)
 - [配置与启动](#quick-start)
 - [内网转发](#private-network)
@@ -39,12 +40,46 @@ Go 保留已发布版本的原始 module 路径，安装和 import 按下方示�
 
 1. **Shred 多路转发**：多个 UDP 监听、多目标复制，保留每个数据包的原始字节。
 2. **Jito / 原始 UDP**：接入 Jito proxy 的 UDP 输出，也可接收提供方推送到 IP+端口的原始 Shred。
-3. **Yellowstone 兼容**：反向 TCP 隧道透传 HTTP/2、双向 Subscribe、过滤器、ping、metadata 和 `x-token`。
+3. **Yellowstone 兼容**：默认透传模式通过反向 TCP 隧道透传 HTTP/2、双向 Subscribe、过滤器、ping、metadata 和 `x-token`。
 4. **gRPC IP 白名单**：在接收端分配隧道前拒绝未授权客户端；空白名单默认拒绝所有客户端。
 5. **公网 TLS 与令牌认证**：公网模板保护发送端到接收端的反向隧道；发送端无需为 Yellowstone 开公网入口。
 6. **可信私网通道**：内网模板使用明文 TCP，保留共享令牌和客户端 IP 白名单；Shred 使用 UDP。
 7. **三语言 Bot 接入**：Rust/Go channel、TypeScript async iterator 接收 Shred；三语言均交付解码后的 Yellowstone 消息。
 8. **脚本运维**：预编译安装包、SHA256 校验、配置保留升级、systemd 启动、统计日志和连接限制。
+
+<a id="shared"></a>
+## 共享订阅与 API Key（尚未发布）
+
+`main` 源码新增 **一个上游订阅服务多个用户**、可选 API Key（`x-token` 或 `x-api-key`）、IP 验证、按用户额度和账户更新权限。**已发布的 v0.1.1 不包含这些功能**；当前需源码构建，详见 [完整配置与运行说明](docs/SHARED_CN.md)。
+
+在接收端 B 的配置中增加以下字段，保留已有隧道配置：
+
+```toml
+[grpc]
+# 此处保留已有 tunnel/listen/TLS 等字段。
+allowed_sources = ["127.0.0.1", "10.0.0.30"]
+api_keys = { alice = "replace-with-random-secret" } # {} 关闭 Key 验证
+
+[grpc.shared]
+upstream_endpoint = "http://yellowstone"
+# upstream_x_token_env = "YELLOWSTONE_X_TOKEN" # 供应商 Token，仅放在 B
+max_subscriptions_per_key = 1
+max_filters = 64
+max_accounts = 512
+allow_accounts = false
+allow_unfiltered = false
+metrics_listen = "127.0.0.1:9090"
+
+[grpc.shared.users.alice]
+max_subscriptions = 1
+max_filters = 4
+max_accounts = 32
+allow_accounts = false
+```
+
+Bot 携带 Alice 的 Key，供应商凭据只保存在 B。Key 与 IP 白名单同时生效；`{}` 或所有 Key 都为空只关闭 Key 验证。账户/owner 更新默认禁止，可按用户开启。用户过滤器/账户额度跨该用户的所有订阅累计，上游额度在相同过滤器去重后计算；请按供应商套餐设置限制。
+
+供应商严格限一条连接时，也在发送端 A 设置 `[grpc] max_connections = 1`，限制断开/重连过程中的上游连接数量。可信内网使用 `http://IP:端口`，客户端 TLS 可选，与隧道/供应商 TLS 独立。完整示例见 [config.shared-receiver.toml](config.shared-receiver.toml)。省略 `[grpc.shared]` 保持 TCP 透传；共享模式支持 Subscribe/Ping/GetVersion、固定 commitment，暂不支持其他 RPC、回放和账户切片。
 
 <a id="installation"></a>
 ## 脚本安装
@@ -183,7 +218,7 @@ Rust 支持将桥接接收端嵌入 Bot；Go/TS 客户端连接已运行的 Rust
 - Shred 为 UDP，不保证送达；不执行重组、纠错、去重或交易解码。Bot 的有界队列满时丢弃新包并累计统计。
 - Jito 鉴权、订阅和心跳由上游 proxy 负责。本工具接入其 UDP 输出，不会恢复已停用的 Jito 服务。
 - gRPC 数据按客户端订阅产生。隧道断开后会重建空闲连接；原订阅需要 Bot 重连并重发过滤器，不重放历史消息。
-- `BRIDGE_TOKEN` 只保护桥接隧道，不等于 Yellowstone 的 `x-token`。Bot 到接收端的链路是否加密取决于 Yellowstone 上游本身是否启用 TLS。
+- `BRIDGE_TOKEN` 只保护桥接隧道，不等于 Yellowstone 的 `x-token`。透传模式中 Bot 链路加密取决于上游 TLS；共享模式由接收端 `client_tls` 控制。
 - 白名单依据 socket 对端 IP；NAT 后填写出口 IP，经代理时仅能看到代理 IP。详细端口、证书、版本兼容及故障说明见 [部署文档](docs/DEPLOYMENT_CN.md)。
 
 <a id="development"></a>
@@ -202,6 +237,8 @@ cargo clippy --all-targets --all-features --locked -- -D warnings
 (cd clients/typescript && npm ci && npm test)
 python3 tools/smoke_clients.py
 python3 tools/smoke_clients.py --plaintext
+python3 tools/smoke_clients.py --shared
+python3 tools/smoke_clients.py --shared --plaintext
 python3 -m unittest discover -s tests -p 'test_install.py'
 ```
 

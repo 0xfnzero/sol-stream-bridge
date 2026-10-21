@@ -115,6 +115,8 @@ func (r *ShredReceiver) DroppedPackets() uint64 { return r.dropped.Load() }
 type YellowstoneConfig struct {
 	Endpoint            string   `toml:"endpoint"`
 	XTokenEnv           string   `toml:"x_token_env"`
+	APIKey              string   `toml:"api_key"`
+	APIKeyEnv           string   `toml:"api_key_env"`
 	TLSDomain           string   `toml:"tls_domain"`
 	CAFile              string   `toml:"ca_file"`
 	TransactionAccounts []string `toml:"transaction_accounts"`
@@ -129,6 +131,25 @@ type Subscription struct {
 // Subscribe connects to the receiver's gRPC listen port, never its tunnel port.
 // The caller owns ctx; cancellation closes the stream. Recv must have one reader.
 func Subscribe(ctx context.Context, cfg YellowstoneConfig, request *pb.SubscribeRequest) (*Subscription, error) {
+	key := cfg.APIKey
+	if cfg.APIKeyEnv != "" {
+		if key != "" {
+			return nil, errors.New("set api_key or api_key_env, not both")
+		}
+		var ok bool
+		key, ok = os.LookupEnv(cfg.APIKeyEnv)
+		if !ok {
+			return nil, errors.New("missing API key environment variable")
+		}
+	}
+	if len(key) > 256 {
+		return nil, errors.New("API key exceeds 256 bytes")
+	}
+	for _, b := range []byte(key) {
+		if b < 33 || b > 126 {
+			return nil, errors.New("API key must contain visible ASCII bytes")
+		}
+	}
 	u, err := url.Parse(cfg.Endpoint)
 	if err != nil {
 		return nil, err
@@ -165,6 +186,9 @@ func Subscribe(ctx context.Context, cfg YellowstoneConfig, request *pb.Subscribe
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
+	if key != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "x-api-key", key)
+	}
 	if cfg.XTokenEnv != "" {
 		token, ok := os.LookupEnv(cfg.XTokenEnv)
 		if !ok {

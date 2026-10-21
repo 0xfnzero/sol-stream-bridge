@@ -33,6 +33,8 @@ fn grpc_config(tunnel: SocketAddr, public: SocketAddr, upstream: SocketAddr) -> 
         upstream: Some(upstream.to_string()),
         token_env: "BRIDGE_TEST_TOKEN".into(),
         allowed_sources: vec!["127.0.0.1".parse().unwrap()],
+        api_keys: Default::default(),
+        shared: None,
         insecure: true,
         cert_file: None,
         key_file: None,

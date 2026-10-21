@@ -1,3 +1,4 @@
+import { resolveApiKey } from "./config.js";
 import dgram from "node:dgram";
 import { BlockList, isIP, type AddressInfo } from "node:net";
 import { readFileSync } from "node:fs";
@@ -92,6 +93,7 @@ export class YellowstoneSubscription implements AsyncIterable<SubscribeUpdate> {
   }
   static async connect(config: YellowstoneConfig, request: SubscribeRequest): Promise<YellowstoneSubscription> {
     validateYellowstoneConfig(config);
+    const apiKey = resolveApiKey(config);
     const url = new URL(config.endpoint);
     if (!["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.username) throw new Error("endpoint must be http(s)://host:port");
     if (url.protocol === "http:" && (config.tls_domain || config.ca_file)) throw new Error("TLS options require https endpoint");
@@ -104,6 +106,7 @@ export class YellowstoneSubscription implements AsyncIterable<SubscribeUpdate> {
     });
     try {
       const metadata = new Metadata();
+      if (apiKey) metadata.set("x-api-key", apiKey);
       if (config.x_token_env) {
         const token = process.env[config.x_token_env];
         if (token === undefined) throw new Error(`Missing env ${config.x_token_env}`);

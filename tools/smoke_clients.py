@@ -31,7 +31,7 @@ def ready(port, process):
             time.sleep(.05)
     raise RuntimeError(f'port {port} not ready')
 
-def run(plaintext=False):
+def run(plaintext=False, shared=False):
     subprocess.run(['cargo','build','--workspace','--locked','--features','yellowstone','--bins','--examples'],cwd=ROOT,check=True)
     subprocess.run(['npm','run','build'],cwd=ROOT/'clients/typescript',check=True)
     with tempfile.TemporaryDirectory(prefix='bridge-smoke-') as directory:
@@ -51,7 +51,7 @@ def run(plaintext=False):
             raise RuntimeError('private setup unexpectedly generated TLS credentials')
         receiver_security = 'insecure=true\n' if plaintext else f'insecure=false\ncert_file="{cert}"\nkey_file="{key}"\n'
         source_security = 'insecure=true\n' if plaintext else f'insecure=false\nserver_name="bridge.example.com"\nca_file="{cert}"\n'
-        env=dict(os.environ,BRIDGE_TOKEN=(credentials/'.bridge-token').read_text().strip(),YELLOWSTONE_X_TOKEN='smoke-token')
+        env=dict(os.environ,BRIDGE_TOKEN=(credentials/'.bridge-token').read_text().strip(),YELLOWSTONE_X_TOKEN='smoke-token',BRIDGE_API_KEY='bot-secret')
         processes=[]
         handles=[]
         def start(name,command):
@@ -63,6 +63,13 @@ def run(plaintext=False):
             upstream,tunnel,public=free_port(),free_port(),free_port()
             udp_in,udp_out=free_port(socket.SOCK_DGRAM),free_port(socket.SOCK_DGRAM)
             feed,_=start('feed',[str(tmp/'feed'),'-listen',f'127.0.0.1:{upstream}']);ready(upstream,feed)
+            shared_config = ''
+            if shared:
+                shared_config = f'''api_keys={{ bot="bot-secret" }}
+[grpc.shared]
+upstream_x_token_env="YELLOWSTONE_X_TOKEN"
+client_tls={str(not plaintext).lower()}
+'''
             receiver=tmp/'receiver.toml';receiver.write_text(f'''role="receiver"
 [grpc]
 tunnel_address="127.0.0.1:{tunnel}"
@@ -70,6 +77,7 @@ listen="127.0.0.1:{public}"
 allowed_sources=["127.0.0.1"]
 token_env="BRIDGE_TOKEN"
 {receiver_security}
+{shared_config}
 ''')
             source=tmp/'source.toml';source.write_text(f'''role="source"
 [[shred]]
@@ -83,17 +91,22 @@ upstream="127.0.0.1:{upstream}"
 token_env="BRIDGE_TOKEN"
 {source_security}
 reconnect_ms=20
+max_connections={1 if shared else 256}
 ''')
             binary=str(ROOT/'target/debug/stream-bridge-server')
             recv,_=start('receiver',[binary,'--config',str(receiver)]);ready(tunnel,recv)
+            client_auth = 'api_key_env="BRIDGE_API_KEY"' if shared else 'x_token_env="YELLOWSTONE_X_TOKEN"'
+            client_scheme = 'https' if shared and not plaintext else 'http'
+            client_tls = f'tls_domain="bridge.example.com"\nca_file="{cert}"' if shared and not plaintext else ''
             config=tmp/'client.toml';config.write_text(f'''[shred]
 listen="127.0.0.1:{udp_out}"
 allowed_sources=["127.0.0.1"]
 channel_capacity=32
 receive_buffer=65536
 [yellowstone]
-endpoint="http://127.0.0.1:{public}"
-x_token_env="YELLOWSTONE_X_TOKEN"
+endpoint="{client_scheme}://127.0.0.1:{public}"
+{client_auth}
+{client_tls}
 transaction_accounts=["11111111111111111111111111111111"]
 ''')
             commands={
@@ -132,7 +145,7 @@ transaction_accounts=["11111111111111111111111111111111"]
                     client.wait(timeout=15)
                     if client.returncode != 0:
                         raise RuntimeError(f'{name} shutdown failed:\n{log.read_text()}')
-                    mode = 'plaintext TCP' if plaintext else 'TLS'
+                    mode = ('shared API-Key ' if shared else 'passthrough ') + ('plaintext TCP' if plaintext else 'TLS')
                     print(f'{name}: received UDP shred, Yellowstone slot and transaction through {mode} bridge; clean shutdown',flush=True)
         except Exception:
             for log in tmp.glob('*.log'):
@@ -149,4 +162,6 @@ transaction_accounts=["11111111111111111111111111111111"]
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--plaintext', action='store_true', help='Use private setup and plaintext TCP tunnels')
-    run(parser.parse_args().plaintext)
+    parser.add_argument('--shared', action='store_true', help='Use shared subscriptions and client API keys; terminate client TLS unless --plaintext')
+    args = parser.parse_args()
+    run(args.plaintext, args.shared)

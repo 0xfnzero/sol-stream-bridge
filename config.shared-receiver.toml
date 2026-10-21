@@ -1,0 +1,61 @@
+# Shared Yellowstone receiver; unreleased/main. On source A set grpc.max_connections=1
+# to enforce a strict provider connection limit, including during TCP teardown.
+# Run ./setup.sh receiver once for tunnel credentials, then select this config.
+role = "receiver"
+
+[grpc]
+tunnel_address = "0.0.0.0:19000"
+listen = "127.0.0.1:10000"
+allowed_sources = ["127.0.0.1"]
+token_env = "BRIDGE_TOKEN"
+insecure = false
+cert_file = "certs/tunnel-cert.pem"
+key_file = "certs/tunnel-key.pem"
+idle_tunnels = 2
+max_connections = 64 # all downstream TCP connections, including idle connections
+connect_timeout_ms = 10000
+tunnel_open_timeout_ms = 1000
+# Replace example keys with independent random secrets (openssl rand -hex 32).
+# {} or only empty values disables API-key checks; IP checks still apply.
+api_keys = { alice = "replace-with-alice-secret", bob = "replace-with-bob-secret" }
+
+[grpc.shared]
+# Authority and TLS identity; the actual socket uses source A's grpc.upstream.
+upstream_endpoint = "http://yellowstone"
+# Provider credential stays on B. Export it before starting B if required.
+# upstream_x_token_env = "YELLOWSTONE_X_TOKEN"
+# For a TLS provider use https://provider.example.com and optionally:
+# upstream_tls_domain = "provider.example.com"
+# upstream_ca_file = "/path/to/provider-ca.pem"
+client_tls = false # localhost/trusted network: http://B_IP:10000
+commitment = "processed"
+max_subscriptions = 64
+max_subscriptions_per_key = 2
+max_filters_per_key = 16 # sum across a user's subscriptions, before deduplication
+max_accounts_per_key = 256
+max_filters_per_client = 8 # each Subscribe stream
+max_accounts_per_client = 128
+max_filters = 64 # upstream union, after deduplicating identical filters
+max_accounts = 512 # explicit account references in that union
+allow_accounts = false
+allow_unfiltered = false
+allow_blocks = false
+allow_entries = false
+client_queue_capacity = 64
+client_queue_bytes = 16777216
+max_request_bytes = 65536 # per request and merged upstream request
+max_response_bytes = 16777216
+total_queue_bytes = 67108864 # serialized-size budget; not a process RSS limit
+metrics_listen = "127.0.0.1:9090"
+
+[grpc.shared.users.alice]
+max_subscriptions = 1
+max_filters = 4 # combined across this user's streams; also caps one stream
+max_accounts = 32
+allow_accounts = false
+
+[grpc.shared.users.bob]
+max_subscriptions = 2
+max_filters = 8
+max_accounts = 64
+allow_accounts = true # explicit opt-in for account update subscriptions
