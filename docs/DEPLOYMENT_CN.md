@@ -7,7 +7,7 @@
 - **Jito ShredStream**：接收 `jito-shredstream-proxy`（常称 jito-shred-proxy）输出的 UDP shred，再原样转发。
 - **原始 Shred**：接收提供方推送到本机 IP + UDP 端口的数据，保持字节、数据包边界和发送顺序，支持多目标复制。
 - **Yellowstone gRPC**：本机主动建立反向 TCP 隧道，目标服务器开放一个访问端口。该端口透明连接本机 Yellowstone，支持 HTTP/2、双向流式 Subscribe、过滤器更新、ping/pong、unary RPC、压缩、metadata 和 `x-token`；不依赖某个 Yellowstone protobuf 版本。
-- 隧道默认使用 TLS、环境变量中的共享令牌认证；断线后自动重新建立空闲隧道。支持 IPv4 / IPv6、并发连接上限、UDP 来源白名单、gRPC 客户端 IP 白名单、30 秒统计日志、SIGINT / SIGTERM 退出。
+- 公网模板使用 TLS 与共享令牌认证；可信内网模板使用明文 TCP 与共享令牌。断线后自动重新建立空闲隧道。支持 IPv4 / IPv6、并发连接上限、UDP 来源白名单、gRPC 客户端 IP 白名单、30 秒统计日志、SIGINT / SIGTERM 退出。
 
 Shred 不做解析、去重、纠错、补包或交易解码；Jito 的鉴权、心跳与服务订阅仍由官方 proxy 负责。本工具接入其 **UDP 输出**，不接入 Jito 的已解码 entries gRPC 服务。
 
@@ -99,7 +99,7 @@ export BRIDGE_TOKEN='<同一个随机令牌，至少 32 字节>'
 - `config.private-source.toml`：发送机 A，示例私网 IP 为 `10.0.0.10`。
 - `config.private-receiver.toml`：接收机 B，示例私网 IP 为 `10.0.0.20`；允许 gRPC 客户端 C 的 `10.0.0.30` 访问。
 
-把示例地址替换为实际地址。按前面的步骤准备相同共享令牌与 TLS 证书，然后分别启动：
+把示例地址替换为实际地址。两份内网模板均设置 `insecure = true`，使用明文 TCP，无需 TLS 证书或域名。两端仍须配置同一个共享令牌。脚本安装的 `private-receiver` 只生成 `.bridge-token`，将其安全复制到 A；直接运行二进制则在两端导出相同的 `BRIDGE_TOKEN`。然后分别启动：
 
 ```bash
 # B 上运行
@@ -112,14 +112,18 @@ A 的 Shred 目标为 `10.0.0.20:20000/20001`，gRPC 隧道目标为 `10.0.0.20:
 
 **同一区域不等于内网互通**：两端需在互通的 VPC/子网中，或已配置 VPC Peering、云联网、VPN 等连接。此工具使用系统路由，不会自动创建 VPC/VPN 或选择“最快区域”；多网卡环境应通过系统路由确保目标私网地址走预期接口。私网不可达时，gRPC 持续重试，UDP 可能发送失败或丢失，程序不会自动改走公网。
 
-安全组/防火墙需允许 A 的私网 IP 访问 B 的 `19000/TCP`、`20000/UDP`、`20001/UDP`，并允许获准客户端访问 B 的 `10000/TCP`。保留内网 TLS、共享令牌及客户端白名单；证书 `server_name` 与 SAN 匹配即可，无需把连接地址改成公网域名。网络时延和流量计费以云厂商实际网络为准。
+安全组/防火墙需仅允许 A 的私网 IP 访问 B 的 `19000/TCP`、`20000/UDP`、`20001/UDP`，并允许获准客户端访问 B 的 `10000/TCP`。明文模式的隧道认证值可被抓取重放，因此只用于受控、可信的内网；公网或不可信路径保留 TLS。客户端 IP 白名单只保护 `listen`，不限制隧道端口。网络时延和流量计费以云厂商实际网络为准。
+
+当前 `main` 提供上述明文默认值；已发布 v0.1.0 的内网模板仍开启 TLS。安装升级会保留已有 `config.toml`、令牌和证书。切换已有可信内网部署时，在两端 `[grpc]` 中显式设置 `insecure = true`，检查配置后重启两端进程；此模式忽略旧 TLS 字段。恢复 TLS 时，两端设置 `insecure = false`，并按公网模板补齐 B 的证书/私钥及 A 的证书名称/CA。
+
+关闭隧道 TLS 可减少加解密开销；长连接中的 TLS 不会对每条消息重新握手，具体延迟收益需实测。上游支持明文时，Bot 使用 `http://IP:端口`；上游强制 TLS 时仍须使用 HTTPS，桥接不会移除上游这一层加密。
 
 ## 只转发其中一种
 
 - **仅 Shred**：使用 `config.shred-only.toml`，不需要令牌或证书。将示例 IP 改成实际目标；多目标写入 `targets` 数组。
 - **仅 gRPC**：从 `config.toml` 删除全部 `[[shred]]` 段，两端保留 `[grpc]`。
 - **更多 Shred 来源**：添加 `[[shred]]` 段，各自使用不同监听地址/端口。
-- **本地明文调试**：两端 `[grpc]` 设置 `insecure = true`，此时无需证书字段，但仍需要共享令牌。公网部署使用默认 TLS。
+- **可信内网或本地明文调试**：两端 `[grpc]` 设置 `insecure = true`，此时无需证书字段，但仍需要共享令牌。公网部署使用默认 TLS。
 
 ## gRPC 客户端 IP 白名单
 
@@ -136,7 +140,7 @@ allowed_sources = ["127.0.0.1", "203.0.113.25", "2001:db8::25"]
 
 检查发生在接收 TCP 连接后、分配并发名额及获取隧道之前；不匹配的连接直接关闭，不建立上游连接、不转发数据。支持 IPv4、IPv6 单个 IP，并识别 IPv4-mapped IPv6 地址；不接受 CIDR、域名或通配符。
 
-使用 socket 实际对端 IP，不信任请求头；NAT 后客户端需要填写出口 IP。经 TCP 代理连接时只能识别代理 IP，若将代理 IP 加入白名单，需由代理限制其后方客户端。该配置仅对接收端的 gRPC `listen` 端口生效；桥接 `tunnel_address` 端口仍使用 TLS 与共享令牌认证。上游 Yellowstone 的 `x-token` 也继续生效。
+使用 socket 实际对端 IP，不信任请求头；NAT 后客户端需要填写出口 IP。经 TCP 代理连接时只能识别代理 IP，若将代理 IP 加入白名单，需由代理限制其后方客户端。该配置仅对接收端的 gRPC `listen` 端口生效；桥接 `tunnel_address` 端口使用共享令牌认证，`insecure = false` 时另加 TLS。上游 Yellowstone 的 `x-token` 也继续生效。
 
 ## 网络与运行特性
 

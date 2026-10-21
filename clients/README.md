@@ -129,7 +129,7 @@ try {
 - UDP queues default to 4096 packets; full queues drop the newest packet. Counters exclude kernel/network loss. Keep strategy work off receive loops.
 - gRPC responses are pulled with transport backpressure. Keep reading so ping replies continue. Rust's upstream SDK has an unbounded request queue; do not enqueue filter changes without a bound.
 - EOF/errors are exposed. Clients do not silently reconnect, replay or hide gaps; reopen and resend filters according to your Bot's recovery policy.
-- `https://` authenticates the original upstream Yellowstone service. `tls_domain` overrides its certificate domain; `ca_file` supplies a private CA PEM, relative to the working directory. This is separate from the bridge tunnel TLS.
+- Use `http://IP:port` when the upstream supports plaintext; `https://` authenticates a TLS upstream Yellowstone service. `tls_domain` overrides its certificate domain; `ca_file` supplies a private CA PEM, relative to the working directory. These settings are independent of the bridge tunnel: private templates use plaintext TCP, while public templates use TLS.
 - Received gRPC messages are limited to 64 MiB.
 - Rust uses proto 12.x; Go pins upstream generated code; TypeScript uses grpc-js-compatible SDK 4.x protobuf. Unknown newer fields require upgrading the corresponding client dependency; the transparent bridge itself is not tied to those protobuf versions.
 

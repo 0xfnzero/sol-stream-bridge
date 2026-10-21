@@ -15,17 +15,19 @@ Typical firewall rules:
 - Provider → A: the configured raw Shred UDP ingress.
 - The source's Yellowstone port need not be public.
 
-Allow private IPs when using VPC routes. A region alone does not establish network connectivity. The private templates bind B's ingress to its private IP and forward UDP to local ports 21000/21001.
+Allow private IPs when using VPC routes. A region alone does not establish network connectivity. The private templates bind B's ingress to its private IP and forward UDP to local ports 21000/21001. They use plaintext TCP for the gRPC tunnel (`insecure = true` on both ends), intended for controlled, trusted networks. Public-network templates keep TLS enabled. Shred forwarding uses ordinary UDP in both modes.
 
 ## Authentication and TLS
 
-Receiver setup creates a random `.bridge-token` and TLS certificate/private key. Copy only the token and certificate to A; do not copy B's private key. Default certificate lifetime is 365 days. Renew before expiration and update the source's trusted certificate when replacing a self-signed certificate.
+Public `receiver` setup creates a random `.bridge-token` and TLS certificate/private key. Copy only the token and certificate to A; do not copy B's private key. Default certificate lifetime is 365 days. Renew before expiration and update the source's trusted certificate when replacing a self-signed certificate. `private-receiver` setup creates only `.bridge-token`; copy that token securely to the private source.
 
 `grpc.server_name` on A must match the certificate SAN. Public-CA certificates can use native public trust roots without `ca_file`; private/self-signed certificates require it. `--check` validates files and syntax, not remote connectivity.
 
-There are two TLS layers: the A→B tunnel and the original Bot→Yellowstone session. The bridge does not terminate or alter the original session. HTTPS clients must validate the upstream Yellowstone certificate and domain, even when connecting to a local bridge endpoint. A plaintext upstream leaves the Bot→B leg plaintext unless separately protected.
+The A→B tunnel and the original Bot→Yellowstone session have independent TLS settings. The bridge does not terminate or alter the original session. Use `http://IP:port` for a plaintext upstream; if the upstream requires TLS, use `https://` and validate its certificate and name, even through a plaintext bridge tunnel. A plaintext upstream leaves the Bot→B leg plaintext unless separately protected.
 
-`grpc.allowed_sources` applies only to B's Bot-facing listener. Empty/missing means deny all. It accepts exact IPv4/IPv6 addresses, including IPv4-mapped IPv6 equivalents; no CIDR, DNS names or wildcards. The tunnel port is protected by its token/TLS instead. Proxy headers do not override the socket peer IP.
+With `insecure = true`, the tunnel has no TLS handshake or data encryption, but its shared-token authentication value travels in plaintext and can be captured and replayed. Restrict the tunnel port to the source using the private network's firewall; the Bot IP allowlist does not protect this port. Use TLS for public or untrusted paths. TLS on persistent connections does not perform a handshake per message; removing it reduces encryption work but does not guarantee a specific latency improvement.
+
+`grpc.allowed_sources` applies only to B's Bot-facing listener. Empty/missing means deny all. It accepts exact IPv4/IPv6 addresses, including IPv4-mapped IPv6 equivalents; no CIDR, DNS names or wildcards. The tunnel port requires the shared token and uses TLS when `insecure = false`. Proxy headers do not override the socket peer IP.
 
 UDP `allowed_sources` has different semantics: an empty list accepts any source. IPv4-mapped IPv6 addresses match their IPv4 equivalents in the server and all clients. Use explicit provider/source IPs for controlled deployments.
 
@@ -33,7 +35,9 @@ UDP `allowed_sources` has different semantics: an empty list accepts any source.
 
 Templates are under `configs/` in installed releases and in the repository root for source checkouts. The active installed configuration is root `config.toml`. `run.sh [path.toml] [--check]` changes into the install directory and loads `.bridge-token` without shell evaluation. Set custom token environment variables externally if using a `token_env` other than `BRIDGE_TOKEN`.
 
-To switch an existing installation's role, back up its active config and copy the desired `configs/config.*.toml` to `config.toml`. Setup/upgrade never silently replaces an active config. Run `./setup.sh receiver` to generate receiver credentials if needed.
+To switch an existing installation's role, back up its active config and copy the desired `configs/config.*.toml` to `config.toml`. Setup/upgrade never silently replaces an active config. Run `./setup.sh receiver` for TLS credentials, or `./setup.sh private-receiver` for a token only.
+
+The plaintext private defaults are on `main`; published v0.1.0 templates enable TLS. Existing private installations keep their active config and certificates on upgrade. To switch a trusted private deployment, set `[grpc] insecure = true` on both ends, check the config and restart both processes. TLS fields are ignored in this mode. To enable TLS again, use `insecure = false` on both ends, supply B's `cert_file` / `key_file` and A's `server_name` / trusted CA, then check and restart.
 
 `idle_tunnels` controls preconnected TCP sockets. `max_connections` limits concurrent client TCP connections, not individual HTTP/2 subscriptions. `connect_timeout_ms` bounds connect/handshake/wait-for-source operations; established subscriptions have no application timeout. Receiver `tunnel_open_timeout_ms` (default 1000 ms, capped at half of `connect_timeout_ms`) limits each candidate OPEN/READY exchange, including the source connecting to its upstream. Timed-out candidates are closed and the next candidate is tried within the total deadline. Increase both timeouts if the upstream needs longer to accept a connection. TCP keepalive detects dead peers, and stale idle tunnels are discarded before forwarding client data. No application data is replayed.
 

@@ -38,8 +38,8 @@
 2. **Jito / 原始 UDP**：接入 Jito proxy 的 UDP 输出，也可接收提供方推送到 IP+端口的原始 Shred。
 3. **Yellowstone 兼容**：反向 TCP 隧道透传 HTTP/2、双向 Subscribe、过滤器、ping、metadata 和 `x-token`。
 4. **gRPC IP 白名单**：在接收端分配隧道前拒绝未授权客户端；空白名单默认拒绝所有客户端。
-5. **TLS 与令牌认证**：保护发送端到接收端的反向隧道；发送端无需为 Yellowstone 开公网入口。
-6. **私网通道**：直接使用 VPC 私网 IP，接收端可仅绑定私网接口。
+5. **公网 TLS 与令牌认证**：公网模板保护发送端到接收端的反向隧道；发送端无需为 Yellowstone 开公网入口。
+6. **可信私网通道**：内网模板使用明文 TCP，保留共享令牌和客户端 IP 白名单；Shred 使用 UDP。
 7. **三语言 Bot 接入**：Rust/Go channel、TypeScript async iterator 接收 Shred；三语言均交付解码后的 Yellowstone 消息。
 8. **脚本运维**：预编译安装包、SHA256 校验、配置保留升级、systemd 启动、统计日志和连接限制。
 
@@ -63,7 +63,7 @@ ROLE=source ./install.sh
 cd "$HOME/stream-bridge"
 ```
 
-可选角色：`source`、`receiver`、`shred-only`、`private-source`、`private-receiver`。接收端初始化需要 `openssl`。脚本只安装并准备文件，完成地址和凭据配置后再启动。
+可选角色：`source`、`receiver`、`shred-only`、`private-source`、`private-receiver`。接收端初始化需要 `openssl`：`receiver` 生成令牌和 TLS 证书，`private-receiver` 只生成令牌。脚本只安装并准备文件，完成地址和凭据配置后再启动。
 
 指定版本或目录：
 
@@ -139,7 +139,11 @@ sudo journalctl -u stream-bridge-server -f
 
 A/B 使用 `ROLE=private-source` 与 `ROLE=private-receiver` 安装，替换模板里的 `10.0.0.10`、`10.0.0.20` 和客户端 `10.0.0.30`。内网示例在 B 将 UDP `20000/20001` 转给本地 Bot 的 `21000/21001`，gRPC 客户端连接 B 的私网 `10000/TCP`。
 
-同一区域不意味着可互通；必须已有互通 VPC、VPC Peering 或 VPN。程序使用系统路由，不创建云网络，也不会在内网失败时自动回退公网。内网仍保留 TLS、隧道令牌和客户端白名单。
+两份内网模板均设置 `grpc.insecure = true`，隧道通过私网 IP + 端口使用明文 TCP，无需证书或域名。将 B 的 `.bridge-token` 安全复制到 A；共享令牌和客户端 IP 白名单继续生效。仅用于受控、可信的网络。公网 `source` / `receiver` 模板保留 TLS。
+
+以上默认值位于当前 `main`；已发布 v0.1.0 的内网模板仍启用 TLS。升级会保留现有配置。已有可信内网部署要切换时，在**两端** `[grpc]` 中设置 `insecure = true`，执行 `./run.sh --check` 后重启两端进程。此模式忽略旧 TLS 字段，不删除现有凭据。
+
+同一区域不意味着可互通；必须已有互通 VPC、VPC Peering 或 VPN。程序使用系统路由，不创建云网络，也不会在内网失败时自动回退公网。上游 Yellowstone 支持明文时，Bot 使用 `http://B的私网IP:10000`；上游强制 TLS 时仍使用 `https://` 并校验上游证书。认证与传输选择详见 [部署文档](docs/DEPLOYMENT_CN.md)。
 
 <a id="clients"></a>
 ## Bot 客户端
@@ -183,6 +187,7 @@ cargo clippy --all-targets --all-features --locked -- -D warnings
 (cd clients/go && go test -race ./...)
 (cd clients/typescript && npm ci && npm test)
 python3 tools/smoke_clients.py
+python3 tools/smoke_clients.py --plaintext
 python3 -m unittest discover -s tests -p 'test_install.py'
 ```
 

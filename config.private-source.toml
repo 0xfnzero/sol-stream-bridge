@@ -1,5 +1,5 @@
 # 内网示例：发送机 A = 10.0.0.10，接收机 B = 10.0.0.20。
-# 两台机器须有互通的私网路由。替换为实际私网 IP。
+# 两台机器须有受控、可信的私网路由。替换为实际私网 IP。
 role = "source"
 
 [[shred]]
@@ -21,10 +21,9 @@ receive_buffer = 8388608
 tunnel_address = "10.0.0.20:19000"
 upstream = "127.0.0.1:10000"
 token_env = "BRIDGE_TOKEN"
-insecure = false
-# 名称用于证书校验；TCP 连接仍使用 tunnel_address 中的私网 IP。
-server_name = "bridge.example.com"
-ca_file = "certs/tunnel-cert.pem"
+# 内网使用明文 TCP，无需证书；共享令牌仍须与接收端一致。
+# 公网部署使用 config.toml 的 TLS 配置。
+insecure = true
 idle_tunnels = 8
 max_connections = 256
 reconnect_ms = 1000

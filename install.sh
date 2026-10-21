@@ -69,7 +69,7 @@ if ! mv "$package" "$INSTALL_DIR"; then
   fail "Could not install package; previous install restored"
 fi
 [[ -z "$backup" ]] || echo "Previous installation preserved at: $backup"
-echo "Installed. Edit $INSTALL_DIR/config.toml, prepare the shared token/TLS, then run:"
+echo "Installed. Edit $INSTALL_DIR/config.toml and follow the setup instructions above, then run:"
 echo "  cd \"$INSTALL_DIR\""
 echo "  ./run.sh --check"
 echo "  ./run.sh"

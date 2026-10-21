@@ -1,4 +1,4 @@
-# 内网示例：仅绑定接收机 B 的私网地址，避免监听公网接口。
+# 可信内网示例：仅绑定接收机 B 的私网地址，避免监听公网接口。
 role = "receiver"
 
 # 收到的 UDP 转给 B 上本地消费者；消费者监听 21000/21001。
@@ -23,9 +23,9 @@ listen = "10.0.0.20:10000"
 # B 本机及授权内网客户端 C；填写实际 socket 对端 IP。
 allowed_sources = ["10.0.0.20", "10.0.0.30"]
 token_env = "BRIDGE_TOKEN"
-insecure = false
-cert_file = "certs/tunnel-cert.pem"
-key_file = "certs/tunnel-key.pem"
+# 内网使用明文 TCP，保留共享令牌和客户端 IP 白名单。
+# 公网部署使用 config.receiver.toml 的 TLS 配置。
+insecure = true
 idle_tunnels = 8
 max_connections = 256
 connect_timeout_ms = 10000

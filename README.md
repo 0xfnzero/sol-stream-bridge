@@ -38,8 +38,8 @@ Source version: **0.1.0**. See [release notes](RELEASE_NOTES.md) for package pub
 2. Accepts Jito proxy UDP output and raw Shred pushed directly to an IP and port.
 3. Reverse TCP tunnels preserve Yellowstone HTTP/2, bidirectional subscriptions, filter updates, ping, metadata and x-token.
 4. Receiver-side gRPC IP allowlists reject unauthorized clients before opening an upstream tunnel. Empty lists deny everyone.
-5. TLS and shared-token authentication protect the reverse tunnel. The source's Yellowstone port need not be public.
-6. Private-IP destinations and private-interface listeners for reachable VPC networks.
+5. Public-network templates use TLS and shared-token authentication. The source's Yellowstone port need not be public.
+6. Trusted private-network templates use plaintext TCP with shared tokens and client IP allowlists; Shred uses UDP.
 7. Rust and Go channels / TypeScript async iterators deliver raw Shred; all three expose typed Yellowstone updates.
 8. Prebuilt installers, checksum verification, configuration-preserving upgrades, optional systemd service, counters and connection limits.
 
@@ -64,7 +64,7 @@ ROLE=source ./install.sh
 cd "$HOME/stream-bridge"
 ```
 
-Roles: `source`, `receiver`, `shred-only`, `private-source`, `private-receiver`. Receiver setup requires `openssl` and creates a token plus a self-signed TLS certificate. Configure addresses and share credentials before starting.
+Roles: `source`, `receiver`, `shred-only`, `private-source`, `private-receiver`. Receiver setup requires `openssl`: `receiver` creates a token and a self-signed TLS certificate; `private-receiver` creates only a token. Configure addresses and share credentials before starting.
 
 Pin a version or directory:
 
@@ -119,7 +119,11 @@ The service runs as the invoking sudo user and reads `.bridge-token`. Foreground
 
 Install A/B with `ROLE=private-source` and `ROLE=private-receiver`. Replace example addresses `10.0.0.10`, `10.0.0.20` and client `10.0.0.30`. The private receiver forwards UDP `20000/20001` to local bot ports `21000/21001`; gRPC clients use B's private `10000/TCP`.
 
-Being in the same region does not guarantee connectivity: use a reachable VPC, peering or VPN. The bridge uses system routing, does not create cloud networks, and does not silently fall back to a public IP. TLS, tunnel tokens and client allowlists remain enabled.
+Both private templates set `grpc.insecure = true`: the tunnel uses plaintext TCP to B's private IP and port, with no certificate or domain required. Securely copy B's `.bridge-token` to A; shared tokens and client IP allowlists remain enabled. Use these templates only on a controlled, trusted network. Public-network `source` / `receiver` templates retain TLS.
+
+These defaults are available on `main`; published v0.1.0 private templates still enable TLS. Upgrades preserve active configurations. To switch an existing trusted-private deployment, set `insecure = true` in `[grpc]` on **both** machines, run `./run.sh --check` and restart both processes. Old TLS fields are ignored in this mode; credentials are not deleted.
+
+Being in the same region does not guarantee connectivity: use a reachable VPC, peering or VPN. The bridge uses system routing, does not create cloud networks, and does not silently fall back to a public IP. For a plaintext Yellowstone upstream, bots use `http://B_PRIVATE_IP:10000`; an upstream requiring TLS still needs `https://` and its own certificate validation. See [deployment details](docs/DEPLOYMENT.md) for authentication and transport choices.
 
 <a id="clients"></a>
 ## Bot clients
@@ -159,10 +163,11 @@ cargo clippy --all-targets --all-features --locked -- -D warnings
 (cd clients/go && go test -race ./...)
 (cd clients/typescript && npm ci && npm test)
 python3 tools/smoke_clients.py
+python3 tools/smoke_clients.py --plaintext
 python3 -m unittest discover -s tests -p 'test_install.py'
 ```
 
-The smoke test uses a local mock Yellowstone and real source/receiver processes. It checks Shred, slot and transaction delivery plus shutdown for all three examples. Configure a live upstream separately for production verification.
+The smoke test uses a local mock Yellowstone and real source/receiver processes. It checks Shred, slot and transaction delivery plus shutdown for all three examples over TLS by default, or plaintext TCP with `--plaintext`. Configure a live upstream separately for production verification.
 
 <a id="related"></a>
 ## Related projects

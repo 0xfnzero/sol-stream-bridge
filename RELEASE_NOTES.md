@@ -1,3 +1,9 @@
+# Unreleased (main)
+
+- Trusted-private templates now use plaintext TCP (`grpc.insecure = true`) and retain shared tokens and client IP allowlists. Private receiver setup creates only a token. Public templates continue to use TLS; Shred continues to use UDP.
+- Upgrades preserve active configuration and credentials. Existing installations must explicitly change `insecure` on both ends to switch transport. Published v0.1.0 private templates still use TLS.
+- CI exercises all three Bot clients through both TLS and plaintext TCP bridges.
+
 # v0.1.0
 
 Initial release: concurrent Shred UDP forwarding and Yellowstone reverse tunnels, TLS/token authentication, receiver IP allowlists, private-network templates, and Rust/Go/TypeScript Bot clients.

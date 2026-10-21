@@ -98,4 +98,35 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual((self.install/'.bridge-token').read_bytes(),token)
         self.assertEqual((self.install/'certs/tunnel-cert.pem').read_bytes(),cert)
 
+    def test_private_setup_creates_only_token_and_keeps_it_on_upgrade(self):
+        result=self.install_package('private-receiver');self.assertEqual(result.returncode,0,result.stderr)
+        config=(self.install/'config.toml').read_text()
+        self.assertIn('insecure = true',config)
+        self.assertIn('allowed_sources = ["10.0.0.20", "10.0.0.30"]',config)
+        token=(self.install/'.bridge-token').read_bytes()
+        self.assertGreaterEqual(len(token.strip()),32)
+        self.assertEqual((self.install/'.bridge-token').stat().st_mode&0o777,0o600)
+        self.assertFalse((self.install/'certs').exists())
+        result=self.install_package('private-receiver');self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual((self.install/'.bridge-token').read_bytes(),token)
+        self.assertEqual((self.install/'config.toml').read_text(),config)
+        self.assertFalse((self.install/'certs').exists())
+        self.install=self.root/'private source'
+        result=self.install_package('private-source');self.assertEqual(result.returncode,0,result.stderr)
+        config=(self.install/'config.toml').read_text()
+        self.assertIn('insecure = true',config)
+        self.assertNotIn('ca_file',config)
+        self.assertFalse((self.install/'certs').exists())
+        self.assertFalse((self.install/'.bridge-token').exists())
+
+    def test_private_upgrade_keeps_existing_tls_configuration_and_credentials(self):
+        result=self.install_package('receiver');self.assertEqual(result.returncode,0,result.stderr)
+        config=(ROOT/'config.private-receiver.toml').read_text().replace('insecure = true','insecure = false')
+        config+='\ncert_file = "certs/tunnel-cert.pem"\nkey_file = "certs/tunnel-key.pem"\n'
+        (self.install/'config.toml').write_text(config)
+        before={p:p.read_bytes() for p in [self.install/'.bridge-token',self.install/'certs/tunnel-cert.pem',self.install/'certs/tunnel-key.pem']}
+        result=self.install_package('private-receiver');self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual((self.install/'config.toml').read_text(),config)
+        for path,data in before.items():self.assertEqual(path.read_bytes(),data)
+
 if __name__=='__main__': unittest.main()

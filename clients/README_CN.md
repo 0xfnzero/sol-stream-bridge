@@ -180,7 +180,7 @@ try {
 - Shred channel/队列有界，默认 4096 个包；满时丢弃新到的包，Rust `dropped_packets()`、Go `DroppedPackets()`、TS `droppedPackets` 可读取累计数，不包含内核或网络丢包。耗时策略应与收包循环分离。
 - Yellowstone 按流拉取并使用传输层背压，不额外维护无限响应队列。三种客户端自动回复 ping，但 Bot 必须持续读取流，不能长时间停止读取。Rust SDK 的请求发送队列为上游 SDK 的无界队列，避免无限频率更新过滤器。
 - 流结束或错误会交给 Bot；客户端不会自动重放数据或掩盖订阅中断。Bot 应根据需要重新连接、重发完整过滤器，并处理断线期间的数据缺口。
-- `http://` 用于明文上游。上游 Yellowstone 本身启用 TLS 时用 `https://`，必要时配置 `tls_domain` 为上游证书域名、`ca_file` 为 CA PEM 文件。这一层与桥接 A→B 的 TLS 隧道独立；`ca_file` 相对于启动目录。
+- 上游支持明文时使用 `http://IP:端口`。上游 Yellowstone 本身启用 TLS 时用 `https://`，必要时配置 `tls_domain` 为上游证书域名、`ca_file` 为 CA PEM 文件。这一层与桥接 A→B 的传输设置独立；内网模板使用明文 TCP，公网模板使用 TLS。`ca_file` 相对于启动目录。
 - gRPC 接收消息上限为 64 MiB；更大的块消息需要按业务需求调整客户端设置。
 - Rust 锁定 Yellowstone proto 12.x，Go 使用锁定的上游生成代码，TypeScript 使用兼容 grpc-js 的 Yellowstone SDK 4.x protobuf。桥接字节透传不受这些版本限制；客户端只暴露各自生成代码认识的字段，接入更新的特殊字段时需同步升级对应 SDK。
 

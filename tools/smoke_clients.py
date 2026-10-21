@@ -3,6 +3,7 @@
 Requires Rust, Go, Node/npm and installed TypeScript dependencies (npm ci).
 Uses loopback only; writes all generated config/logs/binaries to a temporary folder.
 """
+import argparse
 import os
 from pathlib import Path
 import signal
@@ -30,7 +31,7 @@ def ready(port, process):
             time.sleep(.05)
     raise RuntimeError(f'port {port} not ready')
 
-def run():
+def run(plaintext=False):
     subprocess.run(['cargo','build','--workspace','--locked','--features','yellowstone','--bins','--examples'],cwd=ROOT,check=True)
     subprocess.run(['npm','run','build'],cwd=ROOT/'clients/typescript',check=True)
     with tempfile.TemporaryDirectory(prefix='bridge-smoke-') as directory:
@@ -40,10 +41,16 @@ def run():
         credentials=tmp/'credentials'
         (credentials/'configs').mkdir(parents=True)
         shutil.copy2(ROOT/'setup.sh', credentials/'setup.sh')
-        shutil.copy2(ROOT/'config.receiver.toml', credentials/'configs/config.receiver.toml')
-        subprocess.run(['bash',str(credentials/'setup.sh'),'receiver'],check=True,capture_output=True)
+        role = 'private-receiver' if plaintext else 'receiver'
+        template = f'config.{role}.toml'
+        shutil.copy2(ROOT/template, credentials/'configs'/template)
+        subprocess.run(['bash',str(credentials/'setup.sh'),role],check=True,capture_output=True)
         cert=credentials/'certs/tunnel-cert.pem'
         key=credentials/'certs/tunnel-key.pem'
+        if plaintext and (credentials/'certs').exists():
+            raise RuntimeError('private setup unexpectedly generated TLS credentials')
+        receiver_security = 'insecure=true\n' if plaintext else f'insecure=false\ncert_file="{cert}"\nkey_file="{key}"\n'
+        source_security = 'insecure=true\n' if plaintext else f'insecure=false\nserver_name="bridge.example.com"\nca_file="{cert}"\n'
         env=dict(os.environ,BRIDGE_TOKEN=(credentials/'.bridge-token').read_text().strip(),YELLOWSTONE_X_TOKEN='smoke-token')
         processes=[]
         handles=[]
@@ -62,9 +69,7 @@ tunnel_address="127.0.0.1:{tunnel}"
 listen="127.0.0.1:{public}"
 allowed_sources=["127.0.0.1"]
 token_env="BRIDGE_TOKEN"
-insecure=false
-cert_file="{cert}"
-key_file="{key}"
+{receiver_security}
 ''')
             source=tmp/'source.toml';source.write_text(f'''role="source"
 [[shred]]
@@ -76,9 +81,7 @@ allowed_sources=["127.0.0.1"]
 tunnel_address="127.0.0.1:{tunnel}"
 upstream="127.0.0.1:{upstream}"
 token_env="BRIDGE_TOKEN"
-insecure=false
-server_name="bridge.example.com"
-ca_file="{cert}"
+{source_security}
 reconnect_ms=20
 ''')
             binary=str(ROOT/'target/debug/stream-bridge-server')
@@ -129,7 +132,8 @@ transaction_accounts=["11111111111111111111111111111111"]
                     client.wait(timeout=15)
                     if client.returncode != 0:
                         raise RuntimeError(f'{name} shutdown failed:\n{log.read_text()}')
-                    print(f'{name}: received UDP shred, Yellowstone slot and transaction through bridge; clean shutdown',flush=True)
+                    mode = 'plaintext TCP' if plaintext else 'TLS'
+                    print(f'{name}: received UDP shred, Yellowstone slot and transaction through {mode} bridge; clean shutdown',flush=True)
         except Exception:
             for log in tmp.glob('*.log'):
                 print(f'--- {log.name} ---\n{log.read_text()[-4000:]}')
@@ -142,4 +146,7 @@ transaction_accounts=["11111111111111111111111111111111"]
                     except subprocess.TimeoutExpired: process.kill();process.wait()
             for handle in handles: handle.close()
 
-if __name__=='__main__': run()
+if __name__=='__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--plaintext', action='store_true', help='Use private setup and plaintext TCP tunnels')
+    run(parser.parse_args().plaintext)

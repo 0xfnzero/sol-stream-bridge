@@ -14,9 +14,15 @@ elif [[ "$template" != config.toml ]]; then
   echo "Keeping existing config.toml (to switch roles, back it up and copy $template)."
 fi
 case "$role" in receiver|private-receiver)
-  command -v openssl >/dev/null || { echo "openssl is required to generate receiver TLS credentials" >&2; exit 1; }
+  command -v openssl >/dev/null || { echo "openssl is required to generate receiver credentials" >&2; exit 1; }
   umask 077
   if [[ ! -e .bridge-token ]]; then openssl rand -hex 32 > .bridge-token; fi
+  chmod 600 .bridge-token
+  if [[ "$role" == private-receiver ]]; then
+    echo "Copy .bridge-token securely to the source. Private templates use plaintext TCP and need no TLS certificate."
+    echo "Existing config.toml is preserved; keep any credentials required by its TLS settings."
+    exit 0
+  fi
   mkdir -p certs
   if [[ ! -e certs/tunnel-cert.pem && ! -e certs/tunnel-key.pem ]]; then
     tls_name="${TLS_NAME:-bridge.example.com}"
@@ -29,8 +35,9 @@ case "$role" in receiver|private-receiver)
   elif [[ ! -f certs/tunnel-cert.pem || ! -f certs/tunnel-key.pem ]]; then
     echo "Incomplete existing cert/key pair; refusing to replace it" >&2; exit 1
   fi
-  chmod 600 .bridge-token certs/tunnel-key.pem
+  chmod 600 certs/tunnel-key.pem
   echo "Copy .bridge-token and certs/tunnel-cert.pem securely to the source. Keep tunnel-key.pem here."
   ;;
-  source|private-source) echo "Copy the receiver's .bridge-token and certs/tunnel-cert.pem here before starting gRPC.";;
+  source) echo "Copy the receiver's .bridge-token and certs/tunnel-cert.pem here before starting gRPC.";;
+  private-source) echo "Copy the receiver's .bridge-token here. Private templates use plaintext TCP; existing TLS configurations still need their certificates.";;
 esac
