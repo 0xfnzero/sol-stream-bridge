@@ -1,11 +1,12 @@
 use anyhow::{ensure, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, net::SocketAddr};
 use yellowstone_grpc_proto::{prelude::CommitmentLevel, tonic::codegen::http::Uri};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SharedConfig {
+    pub dashboard: Option<super::dashboard::DashboardConfig>,
     /// Authority/TLS identity of Yellowstone. TCP always travels through the source tunnel.
     pub upstream_endpoint: String,
     pub upstream_x_token_env: Option<String>,
@@ -35,7 +36,7 @@ pub struct SharedConfig {
     pub metrics_listen: Option<SocketAddr>,
     pub users: BTreeMap<String, UserLimits>,
 }
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct UserLimits {
     pub max_subscriptions: Option<usize>,
@@ -46,6 +47,7 @@ pub struct UserLimits {
 impl Default for SharedConfig {
     fn default() -> Self {
         Self {
+            dashboard: None,
             upstream_endpoint: "http://yellowstone".into(),
             upstream_x_token_env: None,
             upstream_tls_domain: None,
@@ -107,6 +109,9 @@ impl SharedConfig {
     }
     pub fn validate(&self) -> Result<()> {
         self.commitment_level()?;
+        if let Some(dashboard) = &self.dashboard {
+            dashboard.validate()?;
+        }
         let uri: Uri = self.upstream_endpoint.parse()?;
         ensure!(
             matches!(uri.scheme_str(), Some("http" | "https"))

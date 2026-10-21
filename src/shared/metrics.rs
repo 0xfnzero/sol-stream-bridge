@@ -25,6 +25,19 @@ pub struct Metrics {
     pub delivered: AtomicU64,
 }
 impl Metrics {
+    pub fn snapshot(&self) -> serde_json::Value {
+        serde_json::json!({
+            "connections": self.connections.load(Ordering::Relaxed),
+            "subscriptions": self.subscriptions.load(Ordering::Relaxed),
+            "upstream_connections": self.upstream_connections.load(Ordering::Relaxed),
+            "upstream_streams": self.upstream_streams.load(Ordering::Relaxed),
+            "filters": self.filters.load(Ordering::Relaxed), "accounts": self.accounts.load(Ordering::Relaxed),
+            "rejected": self.rejected.load(Ordering::Relaxed), "slow_clients": self.slow_clients.load(Ordering::Relaxed),
+            "upstream_failures": self.upstream_failures.load(Ordering::Relaxed),
+            "updates": self.updates.load(Ordering::Relaxed), "delivered": self.delivered.load(Ordering::Relaxed),
+        })
+    }
+
     pub fn text(&self) -> String {
         let mut out = String::new();
         for (name, value, kind) in [

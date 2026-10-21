@@ -12,3 +12,9 @@ __pycache__/
 /.bridge-token
 *.tgz
 /.stream-bridge-install
+
+/dashboard/node_modules/
+/dashboard/dist/
+/.dashboard-token
+/dashboard-state.toml
+/dashboard-state.toml.lock

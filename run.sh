@@ -8,6 +8,10 @@ if [[ -z "${BRIDGE_TOKEN:-}" && -f .bridge-token ]]; then
   BRIDGE_TOKEN="$(cat .bridge-token)"
   export BRIDGE_TOKEN
 fi
+if [[ -z "${DASHBOARD_TOKEN:-}" && -f .dashboard-token ]]; then
+  DASHBOARD_TOKEN="$(cat .dashboard-token)"
+  export DASHBOARD_TOKEN
+fi
 binary=bin/stream-bridge-server
 if [[ ! -x "$binary" ]]; then
   [[ -f Cargo.toml ]] || { echo "Missing binary; reinstall the release package" >&2; exit 1; }

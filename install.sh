@@ -6,7 +6,7 @@ INSTALL_DIR="${INSTALL_DIR:-$HOME/stream-bridge}"
 ROLE="${ROLE:-source}"
 MARKER=.stream-bridge-install
 fail() { echo "Error: $*" >&2; exit 1; }
-case "$ROLE" in source|receiver|shred-only|private-source|private-receiver) ;; *) fail "Invalid ROLE: $ROLE";; esac
+case "$ROLE" in source|receiver|shared-receiver|shred-only|private-source|private-receiver) ;; *) fail "Invalid ROLE: $ROLE";; esac
 if [[ -z "${TARGET:-}" ]]; then
   case "$(uname -s)" in Darwin) os=apple-darwin;; Linux) os=unknown-linux-gnu;; *) fail "Supported systems: Linux and macOS";; esac
   case "$(uname -m)" in x86_64|amd64) arch=x86_64;; aarch64|arm64) arch=aarch64;; *) fail "Supported architectures: x86_64 and arm64";; esac
@@ -52,7 +52,7 @@ package="$tmp/stream-bridge"
 [[ -f "$package/$MARKER" && -x "$package/bin/stream-bridge-server" && -x "$package/run.sh" && -x "$package/setup.sh" ]] || fail "Incomplete release package"
 # Upgrade only program/templates. Retain user configuration, tokens and certificates.
 if [[ -d "$INSTALL_DIR" ]]; then
-  for file in "$INSTALL_DIR"/*.toml "$INSTALL_DIR"/.bridge-token; do
+  for file in "$INSTALL_DIR"/*.toml "$INSTALL_DIR"/.bridge-token "$INSTALL_DIR"/.dashboard-token; do
     [[ ! -e "$file" ]] || cp -p "$file" "$package/"
   done
   [[ ! -d "$INSTALL_DIR/certs" ]] || cp -Rp "$INSTALL_DIR/certs" "$package/"

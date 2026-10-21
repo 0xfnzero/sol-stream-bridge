@@ -27,9 +27,9 @@ class InstallerTests(unittest.TestCase):
         binary = package/'bin/stream-bridge-server'
         binary.write_text('#!/bin/bash\nprintf "%s\\n" "${BRIDGE_TOKEN:-}"\n')
         binary.chmod(0o755)
-        for name in ['setup.sh','run.sh']:
+        for name in ['setup.sh','setup-dashboard.sh','run.sh']:
             shutil.copy2(ROOT/name,package/name)
-        for name in ['config.toml','config.receiver.toml','config.shred-only.toml','config.private-source.toml','config.private-receiver.toml']:
+        for name in ['config.toml','config.receiver.toml','config.shred-only.toml','config.private-source.toml','config.private-receiver.toml','config.shared-receiver.toml']:
             shutil.copy2(ROOT/name,package/'configs'/name)
         self.archive = self.assets/f'stream-bridge-server-{TARGET}.tar.gz'
         with tarfile.open(self.archive,'w:gz') as tar:
@@ -51,10 +51,17 @@ class InstallerTests(unittest.TestCase):
         token=f'$(touch "{marker}")'
         (self.install/'.bridge-token').write_text(token)
         (self.install/'.bridge-token').chmod(0o600)
+        (self.install/'.dashboard-token').write_text('dashboard-secret')
+        (self.install/'.dashboard-token').chmod(0o600)
+        (self.install/'dashboard-state.toml').write_text('managed state')
+        (self.install/'dashboard-state.toml').chmod(0o600)
         (self.install/'certs').mkdir();(self.install/'certs/private.pem').write_text('test certificate')
         result=self.install_package();self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual((self.install/'config.toml').read_text(),'personal config\n')
         self.assertTrue((self.install/'custom.toml').exists())
+        self.assertEqual((self.install/'.dashboard-token').read_text(),'dashboard-secret')
+        self.assertEqual((self.install/'dashboard-state.toml').read_text(),'managed state')
+        self.assertEqual((self.install/'dashboard-state.toml').stat().st_mode&0o777,0o600)
         self.assertTrue((self.install/'certs/private.pem').exists())
         self.assertEqual((self.install/'.bridge-token').stat().st_mode&0o777,0o600)
         env=dict(os.environ);env.pop('BRIDGE_TOKEN',None)
@@ -62,6 +69,29 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(),token)
         self.assertFalse(marker.exists())
         self.assertEqual(len(list(self.root.glob('installed bridge.backup.*'))),1)
+
+    def test_dashboard_setup_and_token_loading_are_safe(self):
+        result=self.install_package();self.assertEqual(result.returncode,0,result.stderr)
+        assets=self.install/'dashboard/dist';assets.mkdir(parents=True)
+        (assets/'index.html').write_text('<html></html>')
+        script=self.install/'setup-dashboard.sh'
+        subprocess.run([str(script)],check=True,capture_output=True)
+        token=(self.install/'.dashboard-token').read_bytes()
+        subprocess.run([str(script)],check=True,capture_output=True)
+        self.assertEqual((self.install/'.dashboard-token').read_bytes(),token)
+        self.assertEqual((self.install/'.dashboard-token').stat().st_mode&0o777,0o600)
+        binary=self.install/'bin/stream-bridge-server'
+        binary.write_text('#!/bin/bash\nprintf "%s" "${DASHBOARD_TOKEN:-}"\n')
+        marker=self.root/'never-run'
+        token=f'$(touch "{marker}")'
+        (self.install/'.dashboard-token').write_text(token)
+        env=dict(os.environ);env.pop('DASHBOARD_TOKEN',None)
+        result=subprocess.run([str(self.install/'run.sh'),'--check'],env=env,text=True,capture_output=True,check=True)
+        self.assertEqual(result.stdout,token)
+        self.assertFalse(marker.exists())
+        env['DASHBOARD_TOKEN']='exported-token'
+        result=subprocess.run([str(self.install/'run.sh'),'--check'],env=env,text=True,capture_output=True,check=True)
+        self.assertEqual(result.stdout,'exported-token')
 
     def test_bad_or_missing_checksum_does_not_replace_install(self):
         result=self.install_package();self.assertEqual(result.returncode,0,result.stderr)
@@ -97,6 +127,12 @@ class InstallerTests(unittest.TestCase):
         result=self.install_package('receiver');self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual((self.install/'.bridge-token').read_bytes(),token)
         self.assertEqual((self.install/'certs/tunnel-cert.pem').read_bytes(),cert)
+
+    def test_shared_receiver_template_and_credentials(self):
+        result=self.install_package('shared-receiver');self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('[grpc.shared]',(self.install/'config.toml').read_text())
+        self.assertTrue((self.install/'.bridge-token').is_file())
+        self.assertTrue((self.install/'certs/tunnel-key.pem').is_file())
 
     def test_private_setup_creates_only_token_and_keeps_it_on_upgrade(self):
         result=self.install_package('private-receiver');self.assertEqual(result.returncode,0,result.stderr)

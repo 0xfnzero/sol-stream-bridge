@@ -27,6 +27,7 @@ Go 保留已发布版本的原始 module 路径，安装和 import 按下方示�
 
 - [项目特性](#features)
 - [共享订阅与 API Key](#shared)
+- [React 管理面板](#dashboard)
 - [脚本安装](#installation)
 - [配置与启动](#quick-start)
 - [内网转发](#private-network)
@@ -81,6 +82,17 @@ Bot 携带 Alice 的 Key，供应商凭据只保存在 B。Key 与 IP 白名单�
 
 供应商严格限一条连接时，也在发送端 A 设置 `[grpc] max_connections = 1`，限制断开/重连过程中的上游连接数量。可信内网使用 `http://IP:端口`，客户端 TLS 可选，与隧道/供应商 TLS 独立。完整示例见 [config.shared-receiver.toml](config.shared-receiver.toml)。省略 `[grpc.shared]` 保持 TCP 透传；共享模式支持 Subscribe/Ping/GetVersion、固定 commitment，暂不支持其他 RPC、回放和账户切片。
 
+<a id="dashboard"></a>
+## React 管理面板（尚未发布）
+
+`main` 新增供转发服务运营者使用的 React + TypeScript Dashboard：实时连接与分发统计、用户 API Key 创建/轮换/停用、订阅与账户额度、账户更新权限、IP 白名单、指定订阅断开。策略即时应用并持久化，多个管理员编辑通过版本校验防止覆盖。
+
+在共享 gRPC 接收端执行 `./setup-dashboard.sh`，按提示启用 `[grpc.shared.dashboard]` 后启动服务。默认入口 `http://127.0.0.1:8080`，远程通过 SSH 隧道访问。Shred 路由和全局上游参数仍用 TOML 管理。**v0.1.1 安装包不包含本功能**；源码启动、令牌、备份和生效规则见 [管理面板说明](docs/DASHBOARD_CN.md)。
+
+![React operator dashboard](docs/images/dashboard.jpg)
+
+本地测试环境：未接入生产上游。
+
 <a id="installation"></a>
 ## 脚本安装
 
@@ -109,7 +121,7 @@ cd "$HOME/stream-bridge"
 VERSION=v0.1.1 ROLE=source INSTALL_DIR=/opt/stream-bridge ./install.sh
 ```
 
-目录需对当前用户可写。安装脚本拒绝覆盖非本工具管理的目录；升级保留根目录 TOML、`.bridge-token` 和 `certs/`，旧安装保留为 `.backup.*`，便于回滚。升级后需重启进程。备份包含凭据，应与安装目录一样保管。
+目录需对当前用户可写。安装脚本拒绝覆盖非本工具管理的目录；升级保留根目录 TOML、`.bridge-token`、`.dashboard-token` 和 `certs/`，旧安装保留为 `.backup.*`，便于回滚。升级后需重启进程。备份包含凭据，应与安装目录一样保管。
 
 <a id="quick-start"></a>
 ## 配置与启动

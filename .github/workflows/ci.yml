@@ -28,6 +28,8 @@ jobs:
         working-directory: clients/go
       - run: npm ci && npm run build && npm test
         working-directory: clients/typescript
+      - run: npm ci && npm run build && npm test
+        working-directory: dashboard
       - run: python3 tools/smoke_clients.py && python3 tools/smoke_clients.py --plaintext
       - run: python3 tools/smoke_clients.py --shared && python3 tools/smoke_clients.py --shared --plaintext
       - run: python3 -m unittest discover -s tests -p 'test_install.py'

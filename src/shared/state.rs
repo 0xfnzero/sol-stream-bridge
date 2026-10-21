@@ -1,11 +1,14 @@
 use super::{
+    access::{AccessPolicy, ManagedState},
     filters::{self, Routes},
     metrics::Metrics,
     SharedConfig,
 };
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
+    net::IpAddr,
     sync::{atomic::Ordering, Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{watch, Notify, OwnedSemaphorePermit, Semaphore};
 use yellowstone_grpc_proto::{prelude::*, prost::Message, tonic::Status};
@@ -105,11 +108,15 @@ impl Mailbox {
 }
 struct Client {
     user: String,
+    peer: IpAddr,
+    started_at_ms: u64,
+    delivered: u64,
     request: SubscribeRequest,
     mailbox: Arc<Mailbox>,
 }
 pub struct Registry {
     pub cfg: SharedConfig,
+    pub access: AccessPolicy,
     clients: BTreeMap<u64, Client>,
     pending: HashMap<String, usize>,
     routes: Routes,
@@ -130,6 +137,7 @@ impl Registry {
         (
             Arc::new(Mutex::new(Self {
                 cfg,
+                access: AccessPolicy::new(ManagedState::default()).expect("empty access policy"),
                 clients: BTreeMap::new(),
                 pending: HashMap::new(),
                 routes: HashMap::new(),
@@ -209,9 +217,19 @@ impl Registry {
         }
         Ok(())
     }
+    #[cfg(test)]
     pub fn register(
         &mut self,
         user: String,
+        request: SubscribeRequest,
+        mailbox: Arc<Mailbox>,
+    ) -> Result<u64, Status> {
+        self.register_peer(user, "127.0.0.1".parse().unwrap(), request, mailbox)
+    }
+    pub fn register_peer(
+        &mut self,
+        user: String,
+        peer: IpAddr,
         request: SubscribeRequest,
         mailbox: Arc<Mailbox>,
     ) -> Result<u64, Status> {
@@ -241,6 +259,12 @@ impl Registry {
             id,
             Client {
                 user,
+                peer: stream_bridge_client::canonical_ip(peer),
+                started_at_ms: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+                delivered: 0,
                 request,
                 mailbox,
             },
@@ -286,6 +310,76 @@ impl Registry {
             filters::aggregate(std::iter::empty(), &self.cfg).expect("validated config");
         self.publish(aggregate);
     }
+    pub fn apply_access(&mut self, access: AccessPolicy) {
+        let mode_changed = self.access.state.require_api_key != access.state.require_api_key;
+        let revoke: Vec<_> = self
+            .clients
+            .iter()
+            .filter(|(_, client)| {
+                mode_changed
+                    || !access.allows(client.peer)
+                    || self.access.state.users.get(&client.user)
+                        != access.state.users.get(&client.user)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        self.cfg.users = access
+            .state
+            .users
+            .iter()
+            .map(|(name, user)| (name.clone(), user.limits.clone()))
+            .collect();
+        self.access = access;
+        if !revoke.is_empty() {
+            for id in revoke {
+                if let Some(client) = self.clients.remove(&id) {
+                    client.mailbox.fail(Status::permission_denied(
+                        "access policy changed; reconnect and resubscribe",
+                    ));
+                }
+            }
+            let aggregate = filters::aggregate(
+                self.clients.iter().map(|(id, c)| (*id, &c.request)),
+                &self.cfg,
+            )
+            .expect("removal cannot increase limits");
+            self.publish(aggregate);
+        }
+    }
+    pub fn subscriptions(&self) -> Vec<serde_json::Value> {
+        self.clients.iter().take(200).map(|(id, client)| serde_json::json!({
+            "id": id.to_string(), "user": client.user, "peer": client.peer,
+            "started_at_ms": client.started_at_ms, "delivered": client.delivered,
+            "filters": filters::filter_count(&client.request), "accounts": filters::account_count(&client.request),
+        })).collect()
+    }
+    pub fn users(&self) -> Vec<serde_json::Value> {
+        // One pass across subscriptions; never clone the full user configuration per user.
+        let mut usage = HashMap::<&str, (usize, usize, usize)>::new();
+        for client in self.clients.values() {
+            let item = usage.entry(&client.user).or_default();
+            item.0 += 1;
+            item.1 += filters::filter_count(&client.request);
+            item.2 += filters::account_count(&client.request);
+        }
+        self.access.state.users.iter().map(|(name, user)| {
+            let (subscriptions, filters, accounts) = usage.get(name.as_str()).copied().unwrap_or_default();
+            let limits = &user.limits;
+            serde_json::json!({"name":name, "enabled":user.enabled, "has_key":!user.key.is_empty(),
+                "limits":limits, "effective": {"max_subscriptions":limits.max_subscriptions.unwrap_or(self.cfg.max_subscriptions_per_key),
+                "max_filters":limits.max_filters.unwrap_or(self.cfg.max_filters_per_key),
+                "max_accounts":limits.max_accounts.unwrap_or(self.cfg.max_accounts_per_key),
+                "allow_accounts":limits.allow_accounts.unwrap_or(self.cfg.allow_accounts)},
+                "usage":{"subscriptions":subscriptions,"pending":self.pending.get(name).copied().unwrap_or(0),"filters":filters,"accounts":accounts}})
+        }).collect()
+    }
+    pub fn disconnect(&mut self, id: u64) -> bool {
+        if !self.clients.contains_key(&id) {
+            return false;
+        }
+        self.remove(id, Status::cancelled("disconnected by administrator"));
+        true
+    }
     pub fn dispatch(&mut self, update: SubscribeUpdate) {
         self.metrics.updates.fetch_add(1, Ordering::Relaxed);
         let mut recipients: HashMap<u64, Vec<String>> = HashMap::new();
@@ -304,8 +398,9 @@ impl Registry {
         let update = Arc::new(update);
         let mut slow = Vec::new();
         for (id, names) in recipients {
-            if let Some(client) = self.clients.get(&id) {
+            if let Some(client) = self.clients.get_mut(&id) {
                 if client.mailbox.send(update.clone(), names, encoded_bytes) {
+                    client.delivered = client.delivered.saturating_add(1);
                     self.metrics.delivered.fetch_add(1, Ordering::Relaxed);
                 } else {
                     slow.push(id);

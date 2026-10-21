@@ -1,5 +1,7 @@
 //! One upstream Yellowstone subscription, bounded per-client fanout and admission limits.
+mod access;
 mod config;
+pub mod dashboard;
 mod filters;
 mod io;
 mod metrics;
@@ -9,7 +11,7 @@ mod tests;
 mod upstream;
 pub use config::SharedConfig;
 
-use crate::{client_auth::ClientAuth, config::Grpc, tunnel::TunnelPool};
+use crate::{config::Grpc, tunnel::TunnelPool};
 use anyhow::{Context, Result};
 use futures::Stream;
 use state::{Hub, Mailbox, Registry};
@@ -33,7 +35,6 @@ use yellowstone_grpc_proto::{
 type Updates = Pin<Box<dyn Stream<Item = Result<SubscribeUpdate, Status>> + Send>>;
 #[derive(Clone)]
 struct Service {
-    auth: Arc<ClientAuth>,
     hub: Hub,
     cfg: SharedConfig,
     metrics: Arc<metrics::Metrics>,
@@ -67,10 +68,13 @@ impl Service {
     fn authenticate<T>(&self, req: &Request<T>) -> Result<String, Status> {
         let peer = req
             .remote_addr()
-            .map(|a| stream_bridge_client::canonical_ip(a.ip()).to_string())
-            .unwrap_or_default();
-        self.auth
-            .authenticate(req.metadata(), &peer)
+            .ok_or_else(|| Status::unauthenticated("peer address required"))?
+            .ip();
+        self.hub
+            .lock()
+            .unwrap()
+            .access
+            .authenticate(req.metadata(), peer)
             .inspect_err(|_| {
                 self.metrics.rejected.fetch_add(1, Ordering::Relaxed);
             })
@@ -91,6 +95,11 @@ impl geyser_server::Geyser for Service {
             user: user.clone(),
             hub: self.hub.clone(),
         };
+        let peer = req
+            .remote_addr()
+            .ok_or_else(|| Status::unauthenticated("peer address required"))?
+            .ip();
+        let metadata = req.metadata().clone();
         let mut input = req.into_inner();
         let mut request = timeout(self.initial_timeout, input.message())
             .await
@@ -98,14 +107,20 @@ impl geyser_server::Geyser for Service {
             .ok_or_else(|| Status::invalid_argument("initial subscription required"))?;
         let initial_ping = request.ping.take();
         let mailbox = Mailbox::new(&self.cfg, self.queue_bytes.clone());
-        let id = self
-            .hub
-            .lock()
-            .unwrap()
-            .register(user, request, mailbox.clone())
-            .inspect_err(|_| {
-                self.metrics.rejected.fetch_add(1, Ordering::Relaxed);
-            })?;
+        let id = {
+            let mut registry = self.hub.lock().unwrap();
+            // Re-check after the asynchronous first-message wait: a key/IP can be
+            // revoked while this authenticated request holds a pending slot.
+            let current_user = registry.access.authenticate(&metadata, peer)?;
+            if current_user != user {
+                return Err(Status::unauthenticated("access policy changed; reconnect"));
+            }
+            registry
+                .register_peer(user, peer, request, mailbox.clone())
+                .inspect_err(|_| {
+                    self.metrics.rejected.fetch_add(1, Ordering::Relaxed);
+                })?
+        };
         drop(pending);
         let mut closed = mailbox.closed.subscribe();
         let (hub, output, metrics) = (self.hub.clone(), mailbox.clone(), self.metrics.clone());
@@ -244,6 +259,7 @@ fn send_pong(hub: &Hub, id: u64, output: &Mailbox, ping: i32) {
 pub(crate) fn validate_upstream(g: &Grpc) -> Result<()> {
     if let Some(cfg) = &g.shared {
         upstream::builder(g, cfg)?;
+        dashboard::validate(g, cfg)?;
     }
     Ok(())
 }
@@ -253,8 +269,11 @@ pub(crate) async fn serve(g: Grpc, clients: TcpListener, pool: TunnelPool) -> Re
     cfg.validate()?;
     let metrics = Arc::new(metrics::Metrics::default());
     let (hub, changes) = Registry::new(cfg.clone(), metrics.clone());
+    let managed = dashboard::load_state(&g, &cfg)?;
+    hub.lock()
+        .unwrap()
+        .apply_access(access::AccessPolicy::new(managed)?);
     let service = Service {
-        auth: Arc::new(ClientAuth::new(&g.api_keys)?),
         hub: hub.clone(),
         cfg: cfg.clone(),
         metrics: metrics.clone(),
@@ -286,7 +305,7 @@ pub(crate) async fn serve(g: Grpc, clients: TcpListener, pool: TunnelPool) -> Re
         g.clone(),
         cfg.clone(),
         pool,
-        hub,
+        hub.clone(),
         changes,
         metrics.clone(),
     ));
@@ -301,13 +320,21 @@ pub(crate) async fn serve(g: Grpc, clients: TcpListener, pool: TunnelPool) -> Re
             metrics.clone(),
         ));
     }
+    if let Some(admin) = &cfg.dashboard {
+        workers.spawn(dashboard::serve(
+            admin.clone(),
+            g.clone(),
+            hub.clone(),
+            metrics.clone(),
+        ));
+    }
     let slots = Arc::new(Semaphore::new(g.max_connections));
     let incoming: Pin<
         Box<dyn Stream<Item = std::io::Result<io::Tracked<tokio::net::TcpStream>>> + Send>,
     > = Box::pin(async_stream::try_stream! {
         loop {
             let (tcp, peer) = clients.accept().await?;
-            if !g.allows_client(peer.ip()) { metrics.rejected.fetch_add(1, Ordering::Relaxed); continue; }
+            if !hub.lock().unwrap().access.allows(peer.ip()) { metrics.rejected.fetch_add(1, Ordering::Relaxed); continue; }
             let Ok(permit) = slots.clone().try_acquire_owned() else { metrics.rejected.fetch_add(1, Ordering::Relaxed); continue; };
             tcp.set_nodelay(true)?;
             yield io::Tracked::new(tcp, metrics.clone(), false, permit);

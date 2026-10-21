@@ -1,5 +1,8 @@
 # Unreleased / 尚未发布
 
+- React operator dashboard for shared gRPC: live usage, API key lifecycle, user quotas/account permissions, IP policy, stream disconnects and durable access settings. Loopback admin API with a separate token; bundled assets added to future Linux packages. See [dashboard guide](docs/DASHBOARD.md).
+- 新增 React 管理面板、独立管理员令牌、用户与白名单实时管理及持久化；详见 [中文指南](docs/DASHBOARD_CN.md)。
+
 - Shared Yellowstone mode merges multiple users into one upstream Subscribe stream and routes labelled updates back to their own filters.
 - Optional per-user `x-token` / `x-api-key` authentication combines with IP allowlists. Empty key configuration disables only key checks.
 - Per-user and global subscription/filter/account limits, account-update permissions (default off), bounded fanout queues and loopback Prometheus metrics.

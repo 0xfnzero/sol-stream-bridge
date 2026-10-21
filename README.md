@@ -27,6 +27,7 @@ Current release: **[v0.1.1](https://github.com/0xfnzero/sol-stream-bridge/releas
 
 - [Features](#features)
 - [Shared subscriptions and API Keys](#shared)
+- [React dashboard](#dashboard)
 - [Script installation](#installation)
 - [Configuration and startup](#quick-start)
 - [Private networks](#private-network)
@@ -81,6 +82,17 @@ The Bot sends Alice's key; the provider credential stays on B. IP and Key checks
 
 For a provider limited to one connection, also set `[grpc] max_connections = 1` on source A to bound connections during teardown/reconnect. Use `http://IP:port` on trusted private networks. Client-facing TLS is optional and independent of tunnel/provider TLS. Full example: [config.shared-receiver.toml](config.shared-receiver.toml). Omit `[grpc.shared]` to retain TCP passthrough. Shared mode supports Subscribe/Ping/GetVersion with a fixed commitment; other RPCs, replay and data slices are outside its current scope.
 
+<a id="dashboard"></a>
+## React operator dashboard (unreleased)
+
+`main` includes a React + TypeScript dashboard for shared gRPC operators: live connection and delivery statistics, user key creation/rotation/disable, subscription and account quotas, account-update permission, IP allowlists and individual stream disconnects. Changes persist and apply live; revisions prevent stale edits from overwriting newer settings.
+
+Run `./setup-dashboard.sh` on the shared receiver, enable `[grpc.shared.dashboard]` as instructed, and start the server. The default URL is `http://127.0.0.1:8080`; use SSH forwarding for remote access. Shred routes and global upstream settings remain in TOML. **Published v0.1.1 does not include this feature.** See [dashboard setup, credentials and backups](docs/DASHBOARD.md).
+
+![React operator dashboard](docs/images/dashboard.jpg)
+
+Local test environment; no production upstream attached.
+
 <a id="installation"></a>
 ## Script installation
 
@@ -110,7 +122,7 @@ Pin a version or directory:
 VERSION=v0.1.1 ROLE=source INSTALL_DIR=/opt/stream-bridge ./install.sh
 ```
 
-The directory must be writable. Unmanaged directories are never replaced. Upgrades preserve root TOML files, `.bridge-token` and `certs/`; the previous installation is retained as `.backup.*`. Restart the process after upgrading. Backups contain credentials and must be protected accordingly.
+The directory must be writable. Unmanaged directories are never replaced. Upgrades preserve root TOML files, `.bridge-token`, `.dashboard-token` and `certs/`; the previous installation is retained as `.backup.*`. Restart the process after upgrading. Backups contain credentials and must be protected accordingly.
 
 <a id="quick-start"></a>
 ## Configuration and startup

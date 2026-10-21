@@ -24,6 +24,11 @@ jobs:
           targets: ${{ matrix.target }}
       - if: matrix.cross
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
       - name: Package
         env:
           TARGET: ${{ matrix.target }}

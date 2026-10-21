@@ -59,3 +59,11 @@ max_subscriptions = 2
 max_filters = 8
 max_accounts = 64
 allow_accounts = true # explicit opt-in for account update subscriptions
+
+# Optional React operator dashboard (unreleased/main).
+# Run ./setup-dashboard.sh, then uncomment this entire table.
+# [grpc.shared.dashboard]
+# listen = "127.0.0.1:8080" # loopback only; remote access via SSH -L
+# token_env = "DASHBOARD_TOKEN" # run.sh loads .dashboard-token
+# state_file = "dashboard-state.toml" # mode 600; keys/IPs/users override TOML after first save
+# assets_dir = "dashboard/dist"
