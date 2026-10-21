@@ -1,0 +1,29 @@
+# Bot 所在机器嵌入 receiver。发送端仍使用 config.toml / config.private-source.toml。
+# 将发送端 Jito shred 的 targets 指向此 Bot 的 IP:20000。
+[bridge]
+role = "receiver"
+
+[bridge.grpc]
+tunnel_address = "0.0.0.0:19000"
+listen = "127.0.0.1:10000"
+allowed_sources = ["127.0.0.1"]
+token_env = "BRIDGE_TOKEN"
+insecure = false
+cert_file = "certs/tunnel-cert.pem"
+key_file = "certs/tunnel-key.pem"
+
+# 直接进入 Bot channel，不需要先转发到另一个本地 UDP 端口。
+[shred]
+listen = "0.0.0.0:20000"
+allowed_sources = ["10.0.0.10"] # 修改为发送端实际出口/内网 IP
+receive_buffer = 8388608
+channel_capacity = 4096
+
+[yellowstone]
+endpoint = "http://127.0.0.1:10000"
+# 上游 Yellowstone 需要 x-token 时启用（与 BRIDGE_TOKEN 不同）：
+# x_token_env = "YELLOWSTONE_X_TOKEN"
+# 上游本身启用 TLS 时用 https endpoint，并填写其证书域名：
+# tls_domain = "yellowstone.example.com"
+# 默认订阅 slot；添加关注账户后同时订阅相关交易。
+transaction_accounts = []

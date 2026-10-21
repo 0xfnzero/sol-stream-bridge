@@ -1,0 +1,54 @@
+# Deployment reference
+
+[English](DEPLOYMENT.md) · [中文](DEPLOYMENT_CN.md)
+
+## Ports and data paths
+
+Source A accepts Jito output on loopback UDP or raw provider packets on a configured UDP interface, then copies each datagram to one or more targets. Receiver B may consume the UDP directly or relay it to a Bot's local UDP socket.
+
+For gRPC, A establishes authenticated reverse TCP connections to B's `grpc.tunnel_address`. Bots connect to B's `grpc.listen`; each Bot TCP connection uses one tunnel to A's `grpc.upstream`. HTTP/2 and protobuf bytes are not decoded by the bridge. Do not point the tunnel address at a normal Yellowstone service.
+
+Typical firewall rules:
+
+- A → B: TCP 19000 for the reverse tunnel; UDP 20000/20001 for Shred.
+- Authorized Bot → B: TCP 10000, if the Bot is remote.
+- Provider → A: the configured raw Shred UDP ingress.
+- The source's Yellowstone port need not be public.
+
+Allow private IPs when using VPC routes. A region alone does not establish network connectivity. The private templates bind B's ingress to its private IP and forward UDP to local ports 21000/21001.
+
+## Authentication and TLS
+
+Receiver setup creates a random `.bridge-token` and TLS certificate/private key. Copy only the token and certificate to A; do not copy B's private key. Default certificate lifetime is 365 days. Renew before expiration and update the source's trusted certificate when replacing a self-signed certificate.
+
+`grpc.server_name` on A must match the certificate SAN. Public-CA certificates can use native public trust roots without `ca_file`; private/self-signed certificates require it. `--check` validates files and syntax, not remote connectivity.
+
+There are two TLS layers: the A→B tunnel and the original Bot→Yellowstone session. The bridge does not terminate or alter the original session. HTTPS clients must validate the upstream Yellowstone certificate and domain, even when connecting to a local bridge endpoint. A plaintext upstream leaves the Bot→B leg plaintext unless separately protected.
+
+`grpc.allowed_sources` applies only to B's Bot-facing listener. Empty/missing means deny all. It accepts exact IPv4/IPv6 addresses, including IPv4-mapped IPv6 equivalents; no CIDR, DNS names or wildcards. The tunnel port is protected by its token/TLS instead. Proxy headers do not override the socket peer IP.
+
+UDP `allowed_sources` has different semantics: an empty list accepts any source. Use explicit provider/source IPs for controlled deployments.
+
+## Configuration and operation
+
+Templates are under `configs/` in installed releases and in the repository root for source checkouts. The active installed configuration is root `config.toml`. `run.sh [path.toml] [--check]` changes into the install directory and loads `.bridge-token` without shell evaluation. Set custom token environment variables externally if using a `token_env` other than `BRIDGE_TOKEN`.
+
+To switch an existing installation's role, back up its active config and copy the desired `configs/config.*.toml` to `config.toml`. Setup/upgrade never silently replaces an active config. Run `./setup.sh receiver` to generate receiver credentials if needed.
+
+`idle_tunnels` controls preconnected TCP sockets. `max_connections` limits concurrent client TCP connections, not individual HTTP/2 subscriptions. `connect_timeout_ms` bounds connect/handshake/wait-for-source operations; established subscriptions have no application timeout. TCP keepalive detects dead peers, and stale idle tunnels are discarded before forwarding client data. No application data is replayed.
+
+Fatal bind/config errors terminate the process. UDP destination errors are counted while later packets continue. Source network failures trigger reconnect attempts. Use systemd for process restarts; existing subscriptions still need client-side reconnection and gap handling.
+
+## UDP and resource limits
+
+Each original datagram is forwarded unchanged. The receiver sees A's egress IP and a newly allocated source port, not the original provider IP/port. There is no delivery guarantee, FEC, reordering or deduplication. Avoid forwarding loops; only obvious local self-loops are rejected by validation.
+
+The default requested UDP receive buffer is 8 MiB. The kernel may cap it; actual size is logged. Tune Linux `net.core.rmem_max` if necessary. Each target send waits at most 10 ms; failures are counted. UDP stats are logged every 30 seconds.
+
+Bot raw-Shred queues default to 4096 packets and drop the newest packet when full. Yellowstone clients expose stream errors/EOF and do not silently reconnect/replay. Keep strategy computation off receive loops. Client message limits and protobuf compatibility are documented in [client integration](../clients/README.md).
+
+## Service management
+
+`sudo ./install-service.sh` validates the config as the eventual service user, installs a systemd unit and starts it. The default user is `SUDO_USER`; override with `SERVICE_USER` if needed. That user must read the config/token/certificates. Do not run a second foreground instance on the same ports.
+
+Use `systemctl stop/start/restart stream-bridge-server` and `journalctl -u stream-bridge-server -f`. After upgrading, restart to load the new binary. Previous managed installations remain in sibling `.backup.*` directories for rollback; they include private configuration and must be protected.

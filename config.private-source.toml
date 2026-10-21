@@ -1,0 +1,31 @@
+# 内网示例：发送机 A = 10.0.0.10，接收机 B = 10.0.0.20。
+# 两台机器须有互通的私网路由。替换为实际私网 IP。
+role = "source"
+
+[[shred]]
+name = "jito-private"
+listen = "127.0.0.1:20000"
+targets = ["10.0.0.20:20000"]
+allowed_sources = ["127.0.0.1"]
+receive_buffer = 8388608
+
+# 原始 shred 可从公网或内网接入，向 B 转发时仍使用私网目标地址。
+[[shred]]
+name = "raw-private"
+listen = "0.0.0.0:20001"
+targets = ["10.0.0.20:20001"]
+allowed_sources = ["192.0.2.20"] # 替换为提供方实际来源 IP
+receive_buffer = 8388608
+
+[grpc]
+tunnel_address = "10.0.0.20:19000"
+upstream = "127.0.0.1:10000"
+token_env = "BRIDGE_TOKEN"
+insecure = false
+# 名称用于证书校验；TCP 连接仍使用 tunnel_address 中的私网 IP。
+server_name = "bridge.example.com"
+ca_file = "certs/tunnel-cert.pem"
+idle_tunnels = 8
+max_connections = 256
+reconnect_ms = 1000
+connect_timeout_ms = 10000

@@ -1,0 +1,14 @@
+# 三语言接收示例共用。先在目标服务器启动 Rust bridge receiver。
+# Shred 可由发送端直接发到这里，也可由 receiver 转发到这里。
+[shred]
+listen = "0.0.0.0:21000"
+allowed_sources = ["127.0.0.1", "10.0.0.10"] # 改成实际发送方 IP
+receive_buffer = 8388608
+channel_capacity = 4096
+
+[yellowstone]
+endpoint = "http://127.0.0.1:10000"
+# x_token_env = "YELLOWSTONE_X_TOKEN"
+# https 上游使用其证书域名；自签 CA 可通过 ca_file 指定。
+# tls_domain = "yellowstone.example.com"
+transaction_accounts = [] # 默认订阅 slot；填入账户即可同时订阅相关交易

@@ -1,0 +1,14 @@
+/target/
+/certs/
+.env
+*.local.toml
+
+/clients/typescript/node_modules/
+/clients/typescript/dist/
+__pycache__/
+
+/release/
+/bin/
+/.bridge-token
+*.tgz
+/.stream-bridge-install

@@ -1,0 +1,8 @@
+role = "source"
+
+[[shred]]
+name = "shred"
+listen = "0.0.0.0:20000"
+targets = ["203.0.113.10:20000", "203.0.113.11:20000"]
+allowed_sources = []
+receive_buffer = 8388608

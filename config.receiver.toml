@@ -1,0 +1,27 @@
+# 目标服务器：提供 Yellowstone 访问入口。
+# UDP shred 可直接由目标应用监听 20000/20001，无须桥接接收进程。
+role = "receiver"
+
+[grpc]
+tunnel_address = "0.0.0.0:19000"
+# 默认仅在目标服务器本机访问。需对外服务时按 README 配置网络及上游认证。
+listen = "127.0.0.1:10000"
+# gRPC 客户端 IP 白名单；省略或空数组会拒绝所有客户端。
+# 对外服务时添加获准客户端的实际出口 IP，支持 IPv4/IPv6 单个地址。
+allowed_sources = ["127.0.0.1", "::1"]
+token_env = "BRIDGE_TOKEN"
+insecure = false
+cert_file = "certs/tunnel-cert.pem"
+key_file = "certs/tunnel-key.pem"
+idle_tunnels = 8
+max_connections = 256
+connect_timeout_ms = 10000
+
+# 也可取消以下注释，让目标服务器将收到的 UDP 再转给本地应用。
+# 本地应用应改为监听 21000，避免与本配置的 20000 冲突。
+# [[shred]]
+# name = "deliver-jito"
+# listen = "0.0.0.0:20000"
+# targets = ["127.0.0.1:21000"]
+# allowed_sources = ["192.0.2.10"] # 本机桥接程序所在服务器的公网出口 IP
+# receive_buffer = 8388608

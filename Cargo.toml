@@ -1,0 +1,59 @@
+[workspace]
+members = ["clients/rust"]
+resolver = "2"
+
+[package]
+name = "stream-bridge-server"
+publish = false
+version = "0.1.0"
+edition = "2021"
+description = "UDP shred forwarding and reverse TCP tunnels for Yellowstone gRPC"
+license = "MIT"
+repository = "https://github.com/0xfnzero/stream-bridge"
+homepage = "https://github.com/0xfnzero/stream-bridge"
+readme = "README.md"
+keywords = ["solana", "shred", "yellowstone", "grpc", "trading"]
+categories = ["network-programming", "asynchronous"]
+include = ["/src/**", "/examples/**", "/tests/*.rs", "/Cargo.toml", "/Cargo.lock", "/config*.toml", "/clients/client.toml", "/README.md", "/README_CN.md", "/RELEASE_NOTES.md", "/LICENSE", "/docs/**"]
+
+[dependencies]
+stream-bridge-client = { version = "0.1.0", path = "clients/rust" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+subtle = "2"
+socket2 = "0.6"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-pemfile = "2"
+webpki-roots = "1"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tonic = "0.12"
+tonic-health = "0.12"
+tokio-stream = { version = "0.1", features = ["net"] }
+rcgen = "0.13"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[features]
+yellowstone = ["stream-bridge-client/yellowstone", "dep:yellowstone-grpc-proto"]
+
+[dependencies.yellowstone-grpc-proto]
+version = "12.7"
+optional = true
+
+[[example]]
+name = "bot"
+required-features = ["yellowstone"]
+
+[[example]]
+name = "receive"
+required-features = ["yellowstone"]

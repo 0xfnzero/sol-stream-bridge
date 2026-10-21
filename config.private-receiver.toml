@@ -1,0 +1,31 @@
+# 内网示例：仅绑定接收机 B 的私网地址，避免监听公网接口。
+role = "receiver"
+
+# 收到的 UDP 转给 B 上本地消费者；消费者监听 21000/21001。
+# 如消费者直接绑定 10.0.0.20:20000/20001，删除相应路由以免端口冲突。
+[[shred]]
+name = "deliver-jito-private"
+listen = "10.0.0.20:20000"
+targets = ["127.0.0.1:21000"]
+allowed_sources = ["10.0.0.10"]
+receive_buffer = 8388608
+
+[[shred]]
+name = "deliver-raw-private"
+listen = "10.0.0.20:20001"
+targets = ["127.0.0.1:21001"]
+allowed_sources = ["10.0.0.10"]
+receive_buffer = 8388608
+
+[grpc]
+tunnel_address = "10.0.0.20:19000"
+listen = "10.0.0.20:10000"
+# B 本机及授权内网客户端 C；填写实际 socket 对端 IP。
+allowed_sources = ["10.0.0.20", "10.0.0.30"]
+token_env = "BRIDGE_TOKEN"
+insecure = false
+cert_file = "certs/tunnel-cert.pem"
+key_file = "certs/tunnel-key.pem"
+idle_tunnels = 8
+max_connections = 256
+connect_timeout_ms = 10000

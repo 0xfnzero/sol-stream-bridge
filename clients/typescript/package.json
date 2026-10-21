@@ -1,0 +1,54 @@
+{
+  "name": "stream-bridge-client",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "receive": "tsx examples/receive.ts",
+    "test": "tsx --test tests/*.test.ts",
+    "prepack": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.6",
+    "@triton-one/yellowstone-grpc": "^4.0.2",
+    "smol-toml": "^1.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "description": "Solana Shred UDP and Yellowstone gRPC clients for trading bots",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xfnzero/stream-bridge.git",
+    "directory": "clients/typescript"
+  },
+  "homepage": "https://github.com/0xfnzero/stream-bridge",
+  "files": [
+    "dist/src/",
+    "dist/examples/",
+    "examples/",
+    "README.md",
+    "LICENSE",
+    "client.toml"
+  ],
+  "bin": {
+    "stream-bridge-client": "dist/examples/receive.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

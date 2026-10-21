@@ -1,0 +1,34 @@
+name: Publish clients
+on:
+  workflow_dispatch:
+    inputs:
+      registry:
+        type: choice
+        options: [crates, npm]
+        required: true
+permissions:
+  contents: read
+jobs:
+  crates:
+    if: inputs.registry == 'crates'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --all-features --locked
+      - run: cargo publish -p stream-bridge-client --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+  npm:
+    if: inputs.registry == 'npm'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+      - run: npm ci && npm test && npm publish --access public
+        working-directory: clients/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
