@@ -1,11 +1,12 @@
 use crate::config::Shred;
 use anyhow::Result;
 use socket2::{Domain, Protocol, Socket, Type};
-use std::{net::SocketAddr, time::Duration};
-use tokio::{
-    net::UdpSocket,
-    time::{interval, timeout},
+use std::{
+    net::{SocketAddr, UdpSocket as OutputSocket},
+    time::Duration,
 };
+use stream_bridge_client::canonical_ip;
+use tokio::{net::UdpSocket, time::interval};
 use tracing::info;
 
 pub(crate) fn bind(listen: SocketAddr, receive_buffer: usize) -> Result<UdpSocket> {
@@ -23,7 +24,7 @@ pub(crate) fn bind(listen: SocketAddr, receive_buffer: usize) -> Result<UdpSocke
 
 pub async fn run(cfg: Shred) -> Result<()> {
     let input = bind(cfg.listen, cfg.receive_buffer)?;
-    let mut outputs = Vec::new();
+    let mut outputs = Vec::with_capacity(cfg.targets.len());
     for target in &cfg.targets {
         let bind: SocketAddr = if target.is_ipv4() {
             "0.0.0.0:0"
@@ -31,11 +32,14 @@ pub async fn run(cfg: Shred) -> Result<()> {
             "[::]:0"
         }
         .parse()?;
-        let output = UdpSocket::bind(bind).await?;
-        output.connect(target).await?;
+        // Direct nonblocking sends avoid readiness waits and queues in the hot path.
+        let output = OutputSocket::bind(bind)?;
+        output.set_nonblocking(true)?;
+        output.connect(target)?;
         outputs.push(output);
     }
     info!(route = %cfg.name, listen = %cfg.listen, targets = ?cfg.targets, "UDP route ready");
+    let allowed: Vec<_> = cfg.allowed_sources.into_iter().map(canonical_ip).collect();
     let mut buf = vec![0; 65535];
     let (mut received, mut forwarded, mut denied, mut errors) = (0u64, 0u64, 0u64, 0u64);
     let mut stats = interval(Duration::from_secs(30));
@@ -44,15 +48,16 @@ pub async fn run(cfg: Shred) -> Result<()> {
             r = input.recv_from(&mut buf) => {
                 let (n, peer) = r?;
                 received += 1;
-                if !cfg.allowed_sources.is_empty() && !cfg.allowed_sources.contains(&peer.ip()) {
+                if !allowed.is_empty() && !allowed.contains(&canonical_ip(peer.ip())) {
                     denied += 1;
                     continue;
                 }
                 // Keep each original UDP datagram intact, including zero-length packets.
                 for output in &outputs {
-                    match timeout(Duration::from_millis(10), output.send(&buf[..n])).await {
-                        Ok(Ok(_)) => forwarded += 1,
-                        _ => errors += 1,
+                    match output.send(&buf[..n]) {
+                        Ok(_) => forwarded += 1,
+                        // Includes WouldBlock: drop only this destination's packet.
+                        Err(_) => errors += 1,
                     }
                 }
             }

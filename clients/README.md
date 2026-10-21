@@ -23,7 +23,7 @@ cargo run --locked --example receive --features yellowstone -- clients/client.to
 (cd clients/typescript && npm ci && npm run receive -- ../client.toml)
 ```
 
-The examples print actual received `shred:`, `slot:` and `transaction:` messages. They do not need a wallet key and do not trade. Without an upstream source, no chain data is produced. Ctrl+C closes resources; stream errors/EOF are reported so the Bot can choose its recovery policy.
+The examples print actual received `shred:`, `slot:` and `transaction:` messages. They do not need a wallet key and do not trade. Without an upstream source, no chain data is produced. Shred consumption starts immediately, including while the initial gRPC connection is pending. Ctrl+C closes resources; stream errors/EOF are reported so the Bot can choose its recovery policy.
 
 Rust can also embed the receiver:
 
@@ -51,7 +51,7 @@ use stream_bridge_client::yellowstone::{YellowstoneSubscription, prelude::*};
 
 `ShredReceiver::bind(config).await?` binds before returning. `recv().await` produces `Option<Result<ShredPacket>>`; use `packet.data`, `peer`, and `received_at`. The bounded channel drops newest packets on overflow; inspect `dropped_packets()`.
 
-`YellowstoneSubscription::connect(endpoint, x_token, tls, request).await?` opens a typed subscription. `next_update().await?` returns `Option<SubscribeUpdate>` and automatically replies to ping. `update_filters(request).await?` replaces complete filters. Use `tokio::select!` for both inputs. Dropping the handles stops reception. Full working code is in [receive.rs](../examples/receive.rs).
+`YellowstoneSubscription::connect(endpoint, x_token, tls, request).await?` opens a typed subscription. `next_update().await?` returns `Option<SubscribeUpdate>` and automatically replies to ping. `update_filters(request).await?` replaces complete filters. Use `tokio::select!` for both inputs. Dropping the handles stops reception. The Rust examples share their concurrent receive loops in [common/mod.rs](rust/examples/common/mod.rs).
 
 Only raw Shred is needed? Omit the optional `yellowstone` feature. The regular bridge binary also works without it.
 
@@ -121,7 +121,7 @@ try {
 }
 ```
 
-`updateFilters(SubscribeRequest)` replaces full filters. Use one reader per instance. Keep protobuf 64-bit integer strings as strings or BigInt, not Number. The package ships `.d.ts` declarations, compiled JavaScript, examples, a config template and a `stream-bridge-client` CLI. Full example: [receive.ts](typescript/examples/receive.ts).
+`parseClientConfig(parsedTomlOrJson)` validates both configuration sections and rejects unknown keys before startup. The SDK also validates each configuration passed directly to `bind`/`connect`; misspelled allowlist fields are rejected. `updateFilters(SubscribeRequest)` replaces full filters. Use one reader per instance. Keep protobuf 64-bit integer strings as strings or BigInt, not Number. The package ships `.d.ts` declarations, compiled JavaScript, examples, a config template and a `stream-bridge-client` CLI. Full example: [receive.ts](typescript/examples/receive.ts).
 
 ## Backpressure, TLS and compatibility
 

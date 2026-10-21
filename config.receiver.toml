@@ -16,6 +16,8 @@ key_file = "certs/tunnel-key.pem"
 idle_tunnels = 8
 max_connections = 256
 connect_timeout_ms = 10000
+# 单个候选 OPEN/READY 等待；最多占总等待时间的一半。
+tunnel_open_timeout_ms = 1000
 
 # 也可取消以下注释，让目标服务器将收到的 UDP 再转给本地应用。
 # 本地应用应改为监听 21000，避免与本配置的 20000 冲突。

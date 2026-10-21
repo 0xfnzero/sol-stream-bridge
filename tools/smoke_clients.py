@@ -31,7 +31,7 @@ def ready(port, process):
     raise RuntimeError(f'port {port} not ready')
 
 def run():
-    subprocess.run(['cargo','build','--locked','--features','yellowstone','--bins','--examples'],cwd=ROOT,check=True)
+    subprocess.run(['cargo','build','--workspace','--locked','--features','yellowstone','--bins','--examples'],cwd=ROOT,check=True)
     subprocess.run(['npm','run','build'],cwd=ROOT/'clients/typescript',check=True)
     with tempfile.TemporaryDirectory(prefix='bridge-smoke-') as directory:
         tmp=Path(directory)
@@ -83,7 +83,6 @@ reconnect_ms=20
 ''')
             binary=str(ROOT/'target/debug/stream-bridge-server')
             recv,_=start('receiver',[binary,'--config',str(receiver)]);ready(tunnel,recv)
-            start('source',[binary,'--config',str(source)])
             config=tmp/'client.toml';config.write_text(f'''[shred]
 listen="127.0.0.1:{udp_out}"
 allowed_sources=["127.0.0.1"]
@@ -102,6 +101,20 @@ transaction_accounts=["11111111111111111111111111111111"]
             with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as udp:
                 for name,command in commands.items():
                     client,log=start(name,command)
+                    if name == 'Rust':
+                        # The receiver has no source tunnels yet: gRPC cannot finish connecting.
+                        # UDP must already reach the Bot, without waiting for that dependency.
+                        for _ in range(60):
+                            udp.sendto(b'udp-before-grpc', ('127.0.0.1', udp_out))
+                            time.sleep(.05)
+                            if 'shred:' in log.read_text():
+                                break
+                            if client.poll() is not None:
+                                raise RuntimeError(f'Rust exited during initial gRPC wait:\n{log.read_text()}')
+                        else:
+                            raise RuntimeError(f'Rust blocked UDP on initial gRPC connection:\n{log.read_text()}')
+                        print('Rust: UDP reaches Bot before a gRPC source is available', flush=True)
+                        start('source',[binary,'--config',str(source)])
                     for _ in range(150):
                         udp.sendto(b'raw-shred-smoke',('127.0.0.1',udp_in))
                         time.sleep(.05)

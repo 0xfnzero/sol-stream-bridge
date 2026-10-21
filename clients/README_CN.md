@@ -30,7 +30,7 @@ Shred 是原始数据，不是交易对象；Bot 需要将字节包交给自己�
 cargo run --locked --example receive --features yellowstone -- clients/client.toml
 ```
 
-示例源码：`examples/receive.rs`。Rust 还可把接收桥接直接嵌入 Bot：
+入口为 `examples/receive.rs`，共享接收逻辑位于 `clients/rust/examples/common/mod.rs`。初始 gRPC 建连和重试期间也会立即消费 Shred。Rust 还可把接收桥接直接嵌入 Bot：
 
 ```bash
 export BRIDGE_TOKEN='<两端相同的隧道令牌>'
@@ -74,7 +74,7 @@ node dist/examples/receive.js ../client.toml
 stream-bridge-client = { path = "../stream-bridge/clients/rust", features = ["yellowstone"] }
 ```
 
-在已有 Tokio 运行时中使用；完整错误处理与双流 `select!` 见 `examples/receive.rs`：
+在已有 Tokio 运行时中使用；完整错误处理与并行接收见 `clients/rust/examples/common/mod.rs`：
 
 ```rust
 use stream_bridge_client::{ShredInput, ShredReceiver};
@@ -170,6 +170,8 @@ try {
   shreds.close(); grpc.close();
 }
 ```
+
+使用 `parseClientConfig(parsedTomlOrJson)` 校验外部配置；未知字段、错误类型和无效 IP 会被拒绝。SDK 的 `bind`/`connect` 也执行校验，避免白名单拼写错误变为放行所有来源。
 
 `grpc.updateFilters(SubscribeRequest)` 支持替换完整过滤器。接口支持 `for await` 或直接调用 `next()`，同一实例只应有一个读者。64 位 slot/金额等 protobuf 整数保留为字符串，不要直接转换成 JavaScript Number 后计算。npm 包已发布，可使用 `npm install stream-bridge-client`。
 

@@ -11,6 +11,14 @@ use std::{
 };
 use tokio::{sync::mpsc, task::JoinHandle};
 
+/// Normalize IPv4-mapped IPv6 addresses for exact source-IP matching.
+pub fn canonical_ip(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(ip),
+        _ => ip,
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ShredInput {
@@ -56,23 +64,26 @@ impl ShredReceiver {
         let (tx, rx) = mpsc::channel(config.channel_capacity);
         let dropped = Arc::new(AtomicU64::new(0));
         let counter = dropped.clone();
+        let allowed: Vec<_> = config
+            .allowed_sources
+            .into_iter()
+            .map(canonical_ip)
+            .collect();
         let worker = tokio::spawn(async move {
             let mut buf = vec![0; 65535];
             loop {
                 match socket.recv_from(&mut buf).await {
                     Ok((n, peer)) => {
-                        if !config.allowed_sources.is_empty()
-                            && !config.allowed_sources.contains(&peer.ip())
-                        {
+                        if !allowed.is_empty() && !allowed.contains(&canonical_ip(peer.ip())) {
                             continue;
                         }
-                        let packet = ShredPacket {
-                            data: buf[..n].to_vec(),
-                            peer,
-                            received_at: Instant::now(),
-                        };
-                        match tx.try_send(Ok(packet)) {
-                            Ok(()) => {}
+                        // Reserve before copying so overload does not allocate discarded packets.
+                        match tx.try_reserve() {
+                            Ok(permit) => permit.send(Ok(ShredPacket {
+                                data: buf[..n].to_vec(),
+                                peer,
+                                received_at: Instant::now(),
+                            })),
                             Err(mpsc::error::TrySendError::Full(_)) => {
                                 counter.fetch_add(1, Ordering::Relaxed);
                             }

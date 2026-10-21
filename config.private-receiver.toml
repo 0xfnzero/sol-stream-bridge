@@ -29,3 +29,5 @@ key_file = "certs/tunnel-key.pem"
 idle_tunnels = 8
 max_connections = 256
 connect_timeout_ms = 10000
+# 单个候选 OPEN/READY 等待；最多占总等待时间的一半。
+tunnel_open_timeout_ms = 1000

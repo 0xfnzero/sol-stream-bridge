@@ -3,7 +3,7 @@
 use crate::config::Grpc;
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
-use std::{io::BufReader, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 use subtle::ConstantTimeEq;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
@@ -13,7 +13,10 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tokio_rustls::{
-    rustls::{self, pki_types::ServerName},
+    rustls::{
+        self,
+        pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer, ServerName},
+    },
     TlsAcceptor, TlsConnector,
 };
 use tracing::{info, warn};
@@ -45,7 +48,7 @@ fn connector(g: &Grpc) -> Result<Option<TlsConnector>> {
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     if let Some(path) = &g.ca_file {
-        for cert in rustls_pemfile::certs(&mut BufReader::new(std::fs::File::open(path)?)) {
+        for cert in CertificateDer::pem_file_iter(path)? {
             roots.add(cert?)?;
         }
     }
@@ -58,14 +61,9 @@ fn acceptor(g: &Grpc) -> Result<Option<TlsAcceptor>> {
     if g.insecure {
         return Ok(None);
     }
-    let certs = rustls_pemfile::certs(&mut BufReader::new(std::fs::File::open(
-        g.cert_file.as_ref().context("cert_file required")?,
-    )?))
-    .collect::<std::io::Result<Vec<_>>>()?;
-    let key = rustls_pemfile::private_key(&mut BufReader::new(std::fs::File::open(
-        g.key_file.as_ref().context("key_file required")?,
-    )?))?
-    .context("no private key in key_file")?;
+    let certs = CertificateDer::pem_file_iter(g.cert_file.as_ref().context("cert_file required")?)?
+        .collect::<Result<Vec<_>, _>>()?;
+    let key = PrivateKeyDer::from_pem_file(g.key_file.as_ref().context("key_file required")?)?;
     let c = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
@@ -218,13 +216,20 @@ pub async fn receiver(g: Grpc) -> Result<()> {
                 tune(&client)?;
                 let rx = rx.clone();
                 let d = duration(&g);
+                let open_timeout = Duration::from_millis(g.tunnel_open_timeout_ms).min(d / 2);
                 tasks.spawn(async move {
                     let _permit = permit;
                     // Discard stale idle tunnels, but never replay application data.
                     let selected = timeout(d, async {
                         loop {
                             let mut pipe = rx.lock().await.recv().await.context("tunnel pool closed")?;
-                            if pipe.write_u8(OPEN).await.is_ok() && pipe.flush().await.is_ok() && matches!(pipe.read_u8().await, Ok(READY)) {
+                            let ready = timeout(open_timeout, async {
+                                pipe.write_u8(OPEN).await?;
+                                pipe.flush().await?;
+                                if pipe.read_u8().await? != READY { bail!("invalid tunnel READY"); }
+                                Ok::<_, anyhow::Error>(())
+                            }).await;
+                            if matches!(ready, Ok(Ok(()))) {
                                 return Ok::<_, anyhow::Error>(pipe);
                             }
                         }

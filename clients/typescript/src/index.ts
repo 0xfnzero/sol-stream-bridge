@@ -1,22 +1,13 @@
 import dgram from "node:dgram";
-import { isIP, type AddressInfo } from "node:net";
+import { BlockList, isIP, type AddressInfo } from "node:net";
 import { readFileSync } from "node:fs";
 import { Client, credentials, Metadata, type ClientDuplexStream } from "@grpc/grpc-js";
 import { SubscribeRequest, SubscribeUpdate } from "@triton-one/yellowstone-grpc";
+import { validateShredConfig, validateYellowstoneConfig, type ShredConfig, type YellowstoneConfig } from "./config.js";
+export { parseClientConfig, type ClientConfig, type ShredConfig, type YellowstoneConfig } from "./config.js";
 export { SubscribeRequest, SubscribeUpdate };
 
-export interface ShredConfig {
-  listen: string;
-  allowed_sources?: string[];
-  receive_buffer?: number;
-  channel_capacity?: number;
-}
 export interface ShredPacket { data: Buffer; peer: dgram.RemoteInfo; receivedAt: Date }
-function normalizedIP(ip: string): string {
-  if (!isIP(ip)) throw new Error(`Invalid IP: ${ip}`);
-  if (ip.startsWith("::ffff:") && isIP(ip.slice(7)) === 4) return ip.slice(7);
-  return isIP(ip) === 6 ? new URL(`http://[${ip}]`).hostname : ip;
-}
 
 /** Single-consumer async iterator. A full UDP queue drops the newest packet. */
 export class ShredReceiver implements AsyncIterable<ShredPacket> {
@@ -25,9 +16,9 @@ export class ShredReceiver implements AsyncIterable<ShredPacket> {
   private ended = false;
   private failure?: Error;
   droppedPackets = 0;
-  private constructor(private readonly socket: dgram.Socket, private readonly capacity: number, allowed: Set<string>) {
+  private constructor(private readonly socket: dgram.Socket, private readonly capacity: number, allowed?: BlockList) {
     socket.on("message", (data, peer) => {
-      if (allowed.size && !allowed.has(normalizedIP(peer.address))) return;
+      if (allowed && !allowed.check(peer.address, peer.family === "IPv6" ? "ipv6" : "ipv4")) return;
       const packet = { data, peer, receivedAt: new Date() };
       if (this.pending) { const p = this.pending; this.pending = undefined; p.resolve({ done: false, value: packet }); }
       else if (this.queue.length < capacity) this.queue.push(packet);
@@ -37,14 +28,16 @@ export class ShredReceiver implements AsyncIterable<ShredPacket> {
     socket.on("close", () => this.finish());
   }
   static async bind(config: ShredConfig): Promise<ShredReceiver> {
+    validateShredConfig(config);
     const capacity = config.channel_capacity ?? 4096;
     const receiveBuffer = config.receive_buffer ?? 8388608;
-    if (!Number.isSafeInteger(capacity) || capacity < 1 || !Number.isSafeInteger(receiveBuffer) || receiveBuffer < 1) throw new Error("Invalid buffer/capacity");
     const address = new URL(`udp://${config.listen}`);
     const host = address.hostname.replace(/^\[|\]$/g, "");
     const port = Number(address.port);
     if (!isIP(host) || !address.port || port < 0 || port > 65535) throw new Error("listen must be IP:port");
-    const allowed = new Set((config.allowed_sources ?? []).map(normalizedIP));
+    // Node compares address bytes, including every IPv4-mapped IPv6 spelling.
+    const allowed = config.allowed_sources?.length ? new BlockList() : undefined;
+    for (const ip of config.allowed_sources ?? []) allowed!.addAddress(ip, isIP(ip) === 6 ? "ipv6" : "ipv4");
     const socket = dgram.createSocket(isIP(host) === 6 ? "udp6" : "udp4");
     const receiver = new ShredReceiver(socket, capacity, allowed);
     try {
@@ -83,13 +76,6 @@ export class ShredReceiver implements AsyncIterable<ShredPacket> {
   }
 }
 
-export interface YellowstoneConfig {
-  endpoint: string;
-  x_token_env?: string;
-  tls_domain?: string;
-  ca_file?: string;
-  transaction_accounts?: string[];
-}
 /** Complete replacement request; callers may add account/block/entry filters. */
 export function defaultRequest(accounts: string[] = []): SubscribeRequest {
   return SubscribeRequest.fromPartial({
@@ -105,6 +91,7 @@ export class YellowstoneSubscription implements AsyncIterable<SubscribeUpdate> {
     this.iterator = stream[Symbol.asyncIterator]();
   }
   static async connect(config: YellowstoneConfig, request: SubscribeRequest): Promise<YellowstoneSubscription> {
+    validateYellowstoneConfig(config);
     const url = new URL(config.endpoint);
     if (!["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.username) throw new Error("endpoint must be http(s)://host:port");
     if (url.protocol === "http:" && (config.tls_domain || config.ca_file)) throw new Error("TLS options require https endpoint");

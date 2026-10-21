@@ -57,6 +57,9 @@ pub struct Grpc {
     pub reconnect_ms: u64,
     #[serde(default = "connect_timeout_ms")]
     pub connect_timeout_ms: u64,
+    /// Maximum time to open one candidate; also capped at half the total wait.
+    #[serde(default = "tunnel_open_timeout_ms")]
+    pub tunnel_open_timeout_ms: u64,
 }
 fn pool_size() -> usize {
     8
@@ -69,6 +72,9 @@ fn reconnect_ms() -> u64 {
 }
 fn connect_timeout_ms() -> u64 {
     10000
+}
+fn tunnel_open_timeout_ms() -> u64 {
+    1000
 }
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
@@ -108,6 +114,7 @@ impl Config {
                 || g.max_connections > 65536
                 || g.reconnect_ms == 0
                 || g.connect_timeout_ms == 0
+                || g.tunnel_open_timeout_ms == 0
             {
                 bail!("invalid gRPC limits/timeouts (idle_tunnels: 1..1024; max_connections: 1..65536)");
             }
@@ -147,15 +154,11 @@ fn check_address(s: &str) -> Result<()> {
 }
 impl Grpc {
     pub fn allows_client(&self, ip: IpAddr) -> bool {
-        fn canonical(ip: IpAddr) -> IpAddr {
-            match ip {
-                IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(ip),
-                _ => ip,
-            }
-        }
+        use stream_bridge_client::canonical_ip;
+        let ip = canonical_ip(ip);
         self.allowed_sources
             .iter()
-            .any(|allowed| canonical(*allowed) == canonical(ip))
+            .any(|allowed| canonical_ip(*allowed) == ip)
     }
     pub fn token(&self) -> Result<String> {
         let token = std::env::var(&self.token_env)

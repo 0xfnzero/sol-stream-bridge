@@ -42,6 +42,7 @@ fn grpc_config(tunnel: SocketAddr, public: SocketAddr, upstream: SocketAddr) -> 
         max_connections: 16,
         reconnect_ms: 20,
         connect_timeout_ms: 1000,
+        tunnel_open_timeout_ms: 100,
     }
 }
 async fn listening(addr: SocketAddr) {
@@ -329,6 +330,90 @@ async fn grpc_denied_clients_never_consume_a_tunnel() {
         );
         task.abort();
     }
+}
+
+#[tokio::test]
+async fn stalled_tunnel_is_skipped_without_replaying_client_bytes() {
+    use sha2::{Digest, Sha256};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (address, public) = (port(), port());
+    let mut g = grpc_config(address, public, port());
+    // A single total deadline must not be spent entirely on the stalled candidate.
+    g.connect_timeout_ms = 1500;
+    let receiver = tokio::spawn(tunnel::receiver(g));
+    listening(address).await;
+    async fn authenticate(address: SocketAddr) -> TcpStream {
+        let mut pipe = TcpStream::connect(address).await.unwrap();
+        pipe.write_all(b"SGBR0001").await.unwrap();
+        pipe.write_all(&Sha256::digest(b"0123456789abcdef0123456789abcdef"))
+            .await
+            .unwrap();
+        assert_eq!(pipe.read_u8().await.unwrap(), 1);
+        pipe
+    }
+    let mut stalled = authenticate(address).await;
+    let mut client = TcpStream::connect(public).await.unwrap();
+    client.write_all(b"application-bytes").await.unwrap();
+    assert_eq!(
+        timeout(Duration::from_secs(1), stalled.read_u8())
+            .await
+            .unwrap()
+            .unwrap(),
+        2
+    );
+    let mut healthy = authenticate(address).await;
+    timeout(Duration::from_secs(2), async {
+        assert_eq!(healthy.read_u8().await.unwrap(), 2);
+        healthy.write_u8(3).await.unwrap();
+        let mut data = [0; 17];
+        healthy.read_exact(&mut data).await.unwrap();
+        assert_eq!(&data, b"application-bytes");
+        healthy.write_all(b"reply").await.unwrap();
+        let mut reply = [0; 5];
+        client.read_exact(&mut reply).await.unwrap();
+        assert_eq!(&reply, b"reply");
+        // OPEN is the only byte sent to the rejected pipe; no application data is replayed.
+        assert_eq!(stalled.read(&mut [0; 1]).await.unwrap(), 0);
+    })
+    .await
+    .unwrap();
+    receiver.abort();
+}
+
+#[tokio::test]
+async fn udp_dual_stack_accepts_mapped_equivalents_and_rejects_other_ips() {
+    let output = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let listen = std::net::UdpSocket::bind("[::1]:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let task = tokio::spawn(udp::run(Shred {
+        name: "dual-stack".into(),
+        listen: format!("[::]:{}", listen.port()).parse().unwrap(),
+        targets: vec![output.local_addr().unwrap()],
+        allowed_sources: vec!["127.0.0.1".parse().unwrap()],
+        receive_buffer: 65536,
+    }));
+    let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let target: SocketAddr = format!("127.0.0.1:{}", listen.port()).parse().unwrap();
+    let mut buf = [0; 32];
+    timeout(Duration::from_secs(2), async {
+        loop {
+            sender.send_to(b"mapped", target).await.unwrap();
+            if let Ok(Ok(n)) = timeout(Duration::from_millis(20), output.recv(&mut buf)).await {
+                assert_eq!(&buf[..n], b"mapped");
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let ipv6 = UdpSocket::bind("[::1]:0").await.unwrap();
+    ipv6.send_to(b"denied", listen).await.unwrap();
+    assert!(timeout(Duration::from_millis(100), output.recv(&mut buf))
+        .await
+        .is_err());
+    task.abort();
 }
 
 #[test]

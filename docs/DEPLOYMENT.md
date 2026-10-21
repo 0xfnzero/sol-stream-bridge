@@ -27,7 +27,7 @@ There are two TLS layers: the A→B tunnel and the original Bot→Yellowstone se
 
 `grpc.allowed_sources` applies only to B's Bot-facing listener. Empty/missing means deny all. It accepts exact IPv4/IPv6 addresses, including IPv4-mapped IPv6 equivalents; no CIDR, DNS names or wildcards. The tunnel port is protected by its token/TLS instead. Proxy headers do not override the socket peer IP.
 
-UDP `allowed_sources` has different semantics: an empty list accepts any source. Use explicit provider/source IPs for controlled deployments.
+UDP `allowed_sources` has different semantics: an empty list accepts any source. IPv4-mapped IPv6 addresses match their IPv4 equivalents in the server and all clients. Use explicit provider/source IPs for controlled deployments.
 
 ## Configuration and operation
 
@@ -35,7 +35,7 @@ Templates are under `configs/` in installed releases and in the repository root 
 
 To switch an existing installation's role, back up its active config and copy the desired `configs/config.*.toml` to `config.toml`. Setup/upgrade never silently replaces an active config. Run `./setup.sh receiver` to generate receiver credentials if needed.
 
-`idle_tunnels` controls preconnected TCP sockets. `max_connections` limits concurrent client TCP connections, not individual HTTP/2 subscriptions. `connect_timeout_ms` bounds connect/handshake/wait-for-source operations; established subscriptions have no application timeout. TCP keepalive detects dead peers, and stale idle tunnels are discarded before forwarding client data. No application data is replayed.
+`idle_tunnels` controls preconnected TCP sockets. `max_connections` limits concurrent client TCP connections, not individual HTTP/2 subscriptions. `connect_timeout_ms` bounds connect/handshake/wait-for-source operations; established subscriptions have no application timeout. Receiver `tunnel_open_timeout_ms` (default 1000 ms, capped at half of `connect_timeout_ms`) limits each candidate OPEN/READY exchange, including the source connecting to its upstream. Timed-out candidates are closed and the next candidate is tried within the total deadline. Increase both timeouts if the upstream needs longer to accept a connection. TCP keepalive detects dead peers, and stale idle tunnels are discarded before forwarding client data. No application data is replayed.
 
 Fatal bind/config errors terminate the process. UDP destination errors are counted while later packets continue. Source network failures trigger reconnect attempts. Use systemd for process restarts; existing subscriptions still need client-side reconnection and gap handling.
 
@@ -43,7 +43,7 @@ Fatal bind/config errors terminate the process. UDP destination errors are count
 
 Each original datagram is forwarded unchanged. The receiver sees A's egress IP and a newly allocated source port, not the original provider IP/port. There is no delivery guarantee, FEC, reordering or deduplication. Avoid forwarding loops; only obvious local self-loops are rejected by validation.
 
-The default requested UDP receive buffer is 8 MiB. The kernel may cap it; actual size is logged. Tune Linux `net.core.rmem_max` if necessary. Each target send waits at most 10 ms; failures are counted. UDP stats are logged every 30 seconds.
+The default requested UDP receive buffer is 8 MiB. The kernel may cap it; actual size is logged. Tune Linux `net.core.rmem_max` if necessary. Target sends are nonblocking. A busy or failed target drops only its copy of the current packet and increments the error counter; it never pauses other targets or ingress reception. No application send queue is added. UDP stats are logged every 30 seconds.
 
 Bot raw-Shred queues default to 4096 packets and drop the newest packet when full. Yellowstone clients expose stream errors/EOF and do not silently reconnect/replay. Keep strategy computation off receive loops. Client message limits and protobuf compatibility are documented in [client integration](../clients/README.md).
 

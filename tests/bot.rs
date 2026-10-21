@@ -5,6 +5,45 @@ use tokio::{
 };
 
 #[tokio::test]
+async fn bot_udp_matches_all_ipv4_mapped_spellings() {
+    for allowed in ["127.0.0.1", "::ffff:127.0.0.1", "::ffff:7f00:1"] {
+        let mut receiver = ShredReceiver::bind(ShredInput {
+            listen: "[::]:0".parse().unwrap(),
+            allowed_sources: vec![allowed.parse().unwrap()],
+            receive_buffer: 65536,
+            channel_capacity: 1,
+        })
+        .await
+        .unwrap();
+        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        sender
+            .send_to(
+                b"mapped",
+                (std::net::Ipv4Addr::LOCALHOST, receiver.local_addr().port()),
+            )
+            .await
+            .unwrap();
+        let packet = timeout(Duration::from_secs(1), receiver.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(packet.data, b"mapped");
+        let denied = UdpSocket::bind("[::1]:0").await.unwrap();
+        denied
+            .send_to(
+                b"denied",
+                (std::net::Ipv6Addr::LOCALHOST, receiver.local_addr().port()),
+            )
+            .await
+            .unwrap();
+        assert!(timeout(Duration::from_millis(50), receiver.recv())
+            .await
+            .is_err());
+    }
+}
+
+#[tokio::test]
 async fn bot_receives_bytes_and_reports_queue_overflow() {
     let mut receiver = ShredReceiver::bind(ShredInput {
         listen: "127.0.0.1:0".parse().unwrap(),

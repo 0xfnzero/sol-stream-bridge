@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { parse } from "smol-toml";
-import { ShredReceiver, YellowstoneSubscription, defaultRequest, type ShredConfig, type YellowstoneConfig } from "../src/index.js";
+import { ShredReceiver, YellowstoneSubscription, defaultRequest, parseClientConfig } from "../src/index.js";
 
-const config = parse(readFileSync(process.argv[2] ?? "../client.toml", "utf8")) as unknown as { shred: ShredConfig; yellowstone: YellowstoneConfig };
+const config = parseClientConfig(parse(readFileSync(process.argv[2] ?? "../client.toml", "utf8")));
 let shreds: ShredReceiver | undefined;
 let grpc: YellowstoneSubscription | undefined;
 let stopping = false;
