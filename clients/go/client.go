@@ -98,12 +98,12 @@ func ListenShreds(ctx context.Context, cfg ShredConfig) (*ShredReceiver, error) 
 			if !accept {
 				continue
 			}
-			packet := ShredPacket{Data: append([]byte{}, buf[:n]...), Peer: peer, ReceivedAt: time.Now()}
-			select {
-			case packets <- packet:
-			default:
+			if len(packets) == cap(packets) {
 				r.dropped.Add(1)
+				continue
 			}
+			// Only this goroutine sends, so available capacity cannot shrink before the send.
+			packets <- ShredPacket{Data: append([]byte{}, buf[:n]...), Peer: peer, ReceivedAt: time.Now()}
 		}
 	}()
 	return r, nil

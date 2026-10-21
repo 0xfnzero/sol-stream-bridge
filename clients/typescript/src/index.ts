@@ -96,7 +96,9 @@ export class YellowstoneSubscription implements AsyncIterable<SubscribeUpdate> {
     if (!["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.username) throw new Error("endpoint must be http(s)://host:port");
     if (url.protocol === "http:" && (config.tls_domain || config.ca_file)) throw new Error("TLS options require https endpoint");
     const tls = url.protocol === "https:";
-    const channel = new Client(url.host, tls ? credentials.createSsl(config.ca_file ? readFileSync(config.ca_file) : undefined) : credentials.createInsecure(), {
+    // URL removes default ports; grpc-js defaults to 443 even for plaintext.
+    const target = `${url.hostname}:${url.port || (tls ? "443" : "80")}`;
+    const channel = new Client(target, tls ? credentials.createSsl(config.ca_file ? readFileSync(config.ca_file) : undefined) : credentials.createInsecure(), {
       "grpc.max_receive_message_length": 64 * 1024 * 1024,
       ...(config.tls_domain ? { "grpc.ssl_target_name_override": config.tls_domain, "grpc.default_authority": config.tls_domain } : {}),
     });

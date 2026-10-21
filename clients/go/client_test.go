@@ -110,15 +110,42 @@ func TestShredChannelBoundariesOverflowAndClose(t *testing.T) {
 			t.Fatal("no packet")
 		}
 	}
-	for i := 0; i < 32; i++ {
-		conn.Write([]byte{byte(i)})
+	// Fill the queue before sending a burst; the oldest packet must retain its own bytes.
+	if _, err := conn.Write([]byte("oldest")); err != nil {
+		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
-	for r.DroppedPackets() == 0 && time.Now().Before(deadline) {
+	for len(r.Packets) == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if r.DroppedPackets() == 0 {
-		t.Fatal("overflow not counted")
+	if len(r.Packets) != 1 {
+		t.Fatal("queue did not fill")
+	}
+	for i := 0; i < 32; i++ {
+		if _, err := conn.Write([]byte{byte(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline = time.Now().Add(time.Second)
+	for r.DroppedPackets() < 32 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if r.DroppedPackets() != 32 {
+		t.Fatalf("expected 32 drops, got %d", r.DroppedPackets())
+	}
+	if packet := <-r.Packets; string(packet.Data) != "oldest" {
+		t.Fatalf("queued packet was overwritten: %q", packet.Data)
+	}
+	if _, err := conn.Write([]byte("resumed")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case packet := <-r.Packets:
+		if string(packet.Data) != "resumed" {
+			t.Fatalf("unexpected packet after overflow: %q", packet.Data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reception did not resume after overflow")
 	}
 	cancel()
 	for range r.Packets {

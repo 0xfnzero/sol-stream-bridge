@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import dgram from "node:dgram";
 import { setTimeout as sleep } from "node:timers/promises";
-import { Server, ServerCredentials, type ServerDuplexStream } from "@grpc/grpc-js";
+import { Client, Server, ServerCredentials, type ServerDuplexStream } from "@grpc/grpc-js";
 import { parse } from "smol-toml";
 import { ShredReceiver, YellowstoneSubscription, defaultRequest, parseClientConfig, SubscribeRequest, SubscribeUpdate } from "../src/index.js";
 
@@ -60,6 +60,25 @@ test("UDP allowlist rejects other sources", {timeout:5000}, async () => {
     const pending=receiver.next(); await sleep(100);receiver.close();
     assert.equal((await pending).done,true);
   } finally {receiver.close();sender.close();}
+});
+test("Yellowstone preserves HTTP/HTTPS ports for DNS, IPv4 and IPv6 endpoints", async t => {
+  const stop = new Error("stop before opening a network connection");
+  let target = "";
+  t.mock.method(Client.prototype, "waitForReady", function (this: Client, _deadline: Date | number, callback: (error?: Error) => void) {
+    target = this.getChannel().getTarget();
+    callback(stop);
+  });
+  for (const host of ["localhost", "127.0.0.1", "[::1]"]) {
+    for (const [endpoint, port] of [
+      [`http://${host}:80`, "80"], [`http://${host}`, "80"],
+      [`https://${host}:443`, "443"], [`https://${host}`, "443"],
+      [`http://${host}:10000`, "10000"], [`https://${host}:10000`, "10000"],
+      [`http://${host}:443`, "443"], [`https://${host}:80`, "80"],
+    ]) {
+      await assert.rejects(YellowstoneSubscription.connect({ endpoint }, defaultRequest()), error => error === stop);
+      assert.equal(target, `dns:${host}:${port}`, endpoint);
+    }
+  }
 });
 test("Yellowstone delivers decoded updates, token, ping, filter changes and EOF", {timeout:10000}, async () => {
   const server = new Server();
