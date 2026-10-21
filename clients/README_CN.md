@@ -2,7 +2,7 @@
 
 [English](README.md) · [中文](README_CN.md)
 
-包发布状态见 [发布说明](../RELEASE_NOTES.md)。正式发布后 Rust 可通过 crates.io、Go 可通过版本 tag、TypeScript 可通过 npm 安装；本地集成也继续支持。
+包发布状态见 [发布说明](../RELEASE_NOTES.md)。Rust 可通过 crates.io、Go 可通过版本 tag、TypeScript 可通过 npm 安装；本地集成也继续支持。
 
 三种客户端都能把数据交给 Bot：
 
@@ -67,7 +67,7 @@ node dist/examples/receive.js ../client.toml
 
 ## 集成到 Rust Bot
 
-crates.io 发布后可添加 `stream-bridge-client = { version = "0.1.0", features = ["yellowstone"] }`。也可在 Bot 的 Cargo.toml 中加入本地依赖（将路径换成实际位置）：
+通过 crates.io 添加 `stream-bridge-client = { version = "0.1.0", features = ["yellowstone"] }`。也可在 Bot 的 Cargo.toml 中加入本地依赖（将路径换成实际位置）：
 
 ```toml
 [dependencies]
@@ -103,7 +103,7 @@ ShredReceiver 绑定完成后才返回，便于发现端口冲突。Drop 会停�
 
 ## 集成到 Go Bot
 
-Go 版本发布后执行 `go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.0`。本地开发可添加替换（调整绝对路径）：
+安装 Go 版本执行 `go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.0`。本地开发可添加替换（调整绝对路径）：
 
 ```bash
 go mod edit -replace=github.com/0xfnzero/stream-bridge/clients/go=/absolute/path/github.com/0xfnzero/stream-bridge/clients/go
@@ -171,7 +171,7 @@ try {
 }
 ```
 
-`grpc.updateFilters(SubscribeRequest)` 支持替换完整过滤器。接口支持 `for await` 或直接调用 `next()`，同一实例只应有一个读者。64 位 slot/金额等 protobuf 整数保留为字符串，不要直接转换成 JavaScript Number 后计算。npm 发布需要有效登录，当前状态见发布说明；发布后可使用 `npm install stream-bridge-client`。
+`grpc.updateFilters(SubscribeRequest)` 支持替换完整过滤器。接口支持 `for await` 或直接调用 `next()`，同一实例只应有一个读者。64 位 slot/金额等 protobuf 整数保留为字符串，不要直接转换成 JavaScript Number 后计算。npm 包已发布，可使用 `npm install stream-bridge-client`。
 
 ## 背压、断线和 TLS
 

@@ -6,6 +6,7 @@ Uses loopback only; writes all generated config/logs/binaries to a temporary fol
 import os
 from pathlib import Path
 import signal
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -36,7 +37,14 @@ def run():
         tmp=Path(directory)
         subprocess.run(['go','build','-o',str(tmp/'feed'),'./internal/smokefeed'],cwd=ROOT/'clients/go',check=True)
         subprocess.run(['go','build','-o',str(tmp/'go-receive'),'./examples/receive'],cwd=ROOT/'clients/go',check=True)
-        env=dict(os.environ,BRIDGE_TOKEN='local-smoke-token-at-least-32-bytes',YELLOWSTONE_X_TOKEN='smoke-token')
+        credentials=tmp/'credentials'
+        (credentials/'configs').mkdir(parents=True)
+        shutil.copy2(ROOT/'setup.sh', credentials/'setup.sh')
+        shutil.copy2(ROOT/'config.receiver.toml', credentials/'configs/config.receiver.toml')
+        subprocess.run(['bash',str(credentials/'setup.sh'),'receiver'],check=True,capture_output=True)
+        cert=credentials/'certs/tunnel-cert.pem'
+        key=credentials/'certs/tunnel-key.pem'
+        env=dict(os.environ,BRIDGE_TOKEN=(credentials/'.bridge-token').read_text().strip(),YELLOWSTONE_X_TOKEN='smoke-token')
         processes=[]
         handles=[]
         def start(name,command):
@@ -54,7 +62,9 @@ tunnel_address="127.0.0.1:{tunnel}"
 listen="127.0.0.1:{public}"
 allowed_sources=["127.0.0.1"]
 token_env="BRIDGE_TOKEN"
-insecure=true
+insecure=false
+cert_file="{cert}"
+key_file="{key}"
 ''')
             source=tmp/'source.toml';source.write_text(f'''role="source"
 [[shred]]
@@ -66,7 +76,9 @@ allowed_sources=["127.0.0.1"]
 tunnel_address="127.0.0.1:{tunnel}"
 upstream="127.0.0.1:{upstream}"
 token_env="BRIDGE_TOKEN"
-insecure=true
+insecure=false
+server_name="bridge.example.com"
+ca_file="{cert}"
 reconnect_ms=20
 ''')
             binary=str(ROOT/'target/debug/stream-bridge-server')

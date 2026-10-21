@@ -2,6 +2,8 @@
   <h1>Stream Bridge</h1>
   <p>Solana Shred and Yellowstone gRPC forwarding with Rust, Go and TypeScript bot clients</p>
   <a href="https://github.com/0xfnzero/stream-bridge/releases"><img src="https://img.shields.io/github/v/release/0xfnzero/stream-bridge" alt="GitHub Release"></a>
+  <a href="https://crates.io/crates/stream-bridge-client"><img src="https://img.shields.io/crates/v/stream-bridge-client.svg" alt="Rust client"></a>
+  <a href="https://www.npmjs.com/package/stream-bridge-client"><img src="https://img.shields.io/npm/v/stream-bridge-client.svg" alt="TypeScript client"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </div>
 

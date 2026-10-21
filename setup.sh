@@ -23,7 +23,8 @@ case "$role" in receiver|private-receiver)
     [[ "$tls_name" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || { echo "TLS_NAME must be a DNS name" >&2; exit 1; }
     openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
       -keyout certs/tunnel-key.pem -out certs/tunnel-cert.pem \
-      -subj "/CN=$tls_name" -addext "subjectAltName=DNS:$tls_name" 2>/dev/null
+      -subj "/CN=$tls_name" -addext "subjectAltName=DNS:$tls_name" \
+      -addext "basicConstraints=critical,CA:FALSE" 2>/dev/null
     echo "Created TLS certificate for $tls_name. Match source grpc.server_name to this name."
   elif [[ ! -f certs/tunnel-cert.pem || ! -f certs/tunnel-key.pem ]]; then
     echo "Incomplete existing cert/key pair; refusing to replace it" >&2; exit 1

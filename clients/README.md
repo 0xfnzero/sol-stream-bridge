@@ -2,7 +2,7 @@
 
 [English](README.md) · [中文](README_CN.md)
 
-Rust, Go and TypeScript clients expose raw Shred packets and decoded Yellowstone `SubscribeUpdate` messages. They support complete subscription filters, filter replacement and automatic server-ping replies. Read [release notes](../RELEASE_NOTES.md) for package availability; npm is prepared but requires maintainer authentication before publication.
+Rust, Go and TypeScript clients expose raw Shred packets and decoded Yellowstone `SubscribeUpdate` messages. They support complete subscription filters, filter replacement and automatic server-ping replies. Read [release notes](../RELEASE_NOTES.md) for package versions. Rust and npm clients are published as `stream-bridge-client`.
 
 ## Run the examples
 
@@ -35,7 +35,7 @@ The embedded example starts a receiver and delivers Shred directly to a Bot chan
 
 ## Rust integration
 
-After crates.io publication:
+Install from crates.io:
 
 ```toml
 [dependencies]
@@ -57,7 +57,7 @@ Only raw Shred is needed? Omit the optional `yellowstone` feature. The regular b
 
 ## Go integration
 
-Go 1.24+. Once the version tag is public:
+Go 1.24+. Install the versioned Go module:
 
 ```bash
 go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.0
@@ -86,13 +86,13 @@ For local development use a Go `replace` directive pointing `github.com/0xfnzero
 
 ## TypeScript integration
 
-Node.js 20+. After npm publication:
+Node.js 20+:
 
 ```bash
 npm install stream-bridge-client
 ```
 
-Until npm publication, build `clients/typescript` with `npm ci && npm run build`, then run `npm install /absolute/path/stream-bridge/clients/typescript` in your Bot project.
+For local development, build `clients/typescript` with `npm ci && npm run build`, then run `npm install /absolute/path/stream-bridge/clients/typescript` in your Bot project.
 
 ```typescript
 import { ShredReceiver, YellowstoneSubscription, defaultRequest } from "stream-bridge-client";
