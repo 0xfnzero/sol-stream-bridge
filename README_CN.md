@@ -1,20 +1,33 @@
 <div align="center">
-  <h1>Sol Stream Bridge</h1>
-  <p>Solana Shred 与 Yellowstone gRPC 转发桥接，支持 Rust、Go、TypeScript Bot</p>
-  <a href="https://github.com/0xfnzero/sol-stream-bridge/releases"><img src="https://img.shields.io/github/v/release/0xfnzero/sol-stream-bridge" alt="GitHub Release"></a>
-  <a href="https://crates.io/crates/stream-bridge-client"><img src="https://img.shields.io/crates/v/stream-bridge-client.svg" alt="Rust client"></a>
-  <a href="https://www.npmjs.com/package/stream-bridge-client"><img src="https://img.shields.io/npm/v/stream-bridge-client.svg" alt="TypeScript client"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+    <h1>Sol Stream Bridge</h1>
+    <h3><em>Solana Shred 与 Yellowstone gRPC 转发桥接，支持 Rust、Go、TypeScript Bot</em></h3>
 </div>
 
 <p align="center">
-    <a href="README.md">English</a> · <a href="README_CN.md">中文</a> ·
-    <a href="https://t.me/fnzero_group">Telegram</a> ·
-    <a href="https://discord.gg/vuazbGkqQE">Discord</a> ·
-    <a href="https://fnzero.dev/">Website</a>
+    <strong>Sol Stream Bridge 是使用 Rust 实现的 Solana Shred UDP 与 Yellowstone gRPC 转发桥。支持 Jito ShredStream proxy 的 UDP 输出、直接推送到 IP+端口的原始 Shred，以及 Yellowstone Geyser 订阅流。一个进程可同时转发 Shred 和 gRPC，也可分别启用；通过公网或互通私网连接，Rust、Go、TypeScript Bot 客户端直接接收原始数据包和解码后的消息。</strong>
 </p>
 
-**Sol Stream Bridge** 是使用 Rust 实现的 Solana Shred UDP 与 Yellowstone gRPC 转发桥。支持 Jito ShredStream proxy 的 UDP 输出、直接推送到 IP+端口的原始 Shred，以及 Yellowstone Geyser 订阅流。一个进程可同时转发 Shred 和 gRPC，也可分别启用；通过公网或互通私网连接，Rust、Go、TypeScript Bot 客户端直接接收原始数据包和解码后的消息。
+<p align="center">
+    <a href="https://github.com/0xfnzero/sol-stream-bridge/releases"><img src="https://img.shields.io/github/v/release/0xfnzero/sol-stream-bridge" alt="GitHub Release"></a>
+    <a href="https://crates.io/crates/stream-bridge-client"><img src="https://img.shields.io/crates/v/stream-bridge-client.svg" alt="Rust client"></a>
+    <a href="https://www.npmjs.com/package/stream-bridge-client"><img src="https://img.shields.io/npm/v/stream-bridge-client.svg" alt="TypeScript client"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+</p>
+
+<p align="center">
+    <img src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&amp;logo=rust&amp;logoColor=white" alt="Rust">
+    <img src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&amp;logo=go&amp;logoColor=white" alt="Go">
+    <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&amp;logo=typescript&amp;logoColor=white" alt="TypeScript">
+    <img src="https://img.shields.io/badge/Solana-9945FF?style=for-the-badge&amp;logo=solana&amp;logoColor=white" alt="Solana">
+</p>
+
+<p align="center">
+    <a href="https://github.com/0xfnzero/sol-stream-bridge/blob/main/README_CN.md">中文</a> |
+    <a href="https://github.com/0xfnzero/sol-stream-bridge/blob/main/README.md">English</a> |
+    <a href="https://fnzero.dev/">Website</a> |
+    <a href="https://t.me/fnzero_group">Telegram</a> |
+    <a href="https://discord.gg/vuazbGkqQE">Discord</a>
+</p>
 
 **服务端：** `stream-bridge-server` · **Bot 客户端（Rust/npm）：** `stream-bridge-client` · **Go：** `github.com/0xfnzero/stream-bridge/clients/go`
 
