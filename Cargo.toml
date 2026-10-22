@@ -5,7 +5,7 @@ resolver = "2"
 [package]
 name = "stream-bridge-server"
 publish = false
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "UDP shred forwarding and reverse TCP tunnels for Yellowstone gRPC"
 license = "MIT"
@@ -17,7 +17,7 @@ categories = ["network-programming", "asynchronous"]
 include = ["/src/**", "/examples/**", "/tests/*.rs", "/Cargo.toml", "/Cargo.lock", "/config*.toml", "/clients/client.toml", "/README.md", "/README_CN.md", "/RELEASE_NOTES.md", "/LICENSE", "/docs/**"]
 
 [dependencies]
-stream-bridge-client = { version = "0.1.1", path = "clients/rust" }
+stream-bridge-client = { version = "0.2.0", path = "clients/rust" }
 anyhow = "1"
 argon2 = "0.5"
 axum = { version = "0.8", features = ["json"] }

@@ -124,6 +124,39 @@ class InstallerTests(unittest.TestCase):
         result=subprocess.run([str(script)],env=env,check=True,capture_output=True,text=True)
         self.assertIn('Initial dashboard username: my_bridge',result.stdout)
 
+    def test_dashboard_source_upgrade_rebuilds_existing_assets_and_keeps_credentials(self):
+        checkout=self.root/'source checkout'
+        assets=checkout/'dashboard/dist';assets.mkdir(parents=True)
+        shutil.copy2(ROOT/'setup-dashboard.sh',checkout/'setup-dashboard.sh')
+        (assets/'index.html').write_text('old token login')
+        (checkout/'dashboard/package-lock.json').write_text('{}')
+        credentials=checkout/'.dashboard-initial-credentials'
+        credentials.write_text('sb_test01\nexisting-password\n')
+        fake_bin=self.root/'fake-bin';fake_bin.mkdir()
+        npm=fake_bin/'npm'
+        npm.write_text('#!/bin/bash\nset -e\nprintf "%s\\n" "$*" >> npm-calls\nif [[ "$*" == "run build" ]]; then printf "new password login" > dist/index.html; fi\n')
+        npm.chmod(0o755)
+        env=dict(os.environ,PATH=str(fake_bin)+os.pathsep+os.environ['PATH'])
+        result=subprocess.run(['bash',str(checkout/'setup-dashboard.sh')],env=env,text=True,capture_output=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual((assets/'index.html').read_text(),'new password login')
+        self.assertEqual((checkout/'dashboard/npm-calls').read_text().splitlines(),['ci --no-audit --no-fund','run build'])
+        self.assertEqual(credentials.read_text(),'sb_test01\nexisting-password\n')
+        self.assertNotIn('existing-password',result.stdout)
+
+        # A failed source rebuild must stop before generating credentials.
+        credentials.unlink()
+        npm.write_text('#!/bin/bash\nexit 42\n')
+        failed=subprocess.run(['bash',str(checkout/'setup-dashboard.sh')],env=env,text=True,capture_output=True)
+        self.assertNotEqual(failed.returncode,0)
+        self.assertFalse(credentials.exists())
+
+        # A prebuilt release needs no npm, even if one is installed but unusable.
+        (checkout/'dashboard/package-lock.json').unlink()
+        result=subprocess.run(['bash',str(checkout/'setup-dashboard.sh')],env=env,text=True,capture_output=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue(credentials.exists())
+
     def test_bad_or_missing_checksum_does_not_replace_install(self):
         result=self.install_package();self.assertEqual(result.returncode,0,result.stderr)
         original=(self.install/'config.toml').read_bytes()

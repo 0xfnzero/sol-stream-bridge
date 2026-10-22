@@ -2,6 +2,7 @@
 mod access;
 mod config;
 pub mod dashboard;
+mod dispatch;
 mod filters;
 mod io;
 mod metrics;
@@ -36,7 +37,7 @@ type Updates = Pin<Box<dyn Stream<Item = Result<SubscribeUpdate, Status>> + Send
 #[derive(Clone)]
 struct Service {
     hub: Hub,
-    cfg: SharedConfig,
+    cfg: Arc<SharedConfig>,
     metrics: Arc<metrics::Metrics>,
     queue_bytes: Arc<Semaphore>,
     initial_timeout: Duration,
@@ -246,13 +247,19 @@ fn send_pong(hub: &Hub, id: u64, output: &Mailbox, ping: i32) {
         ..Default::default()
     };
     let encoded_bytes = update.encoded_len();
-    if !output.send(Arc::new(update), vec![], encoded_bytes) {
+    if matches!(
+        output.send(Arc::new(update), Arc::from([]), encoded_bytes),
+        state::Delivery::Full
+    ) {
         let mut registry = hub.lock().unwrap();
-        registry
-            .metrics
-            .slow_clients
-            .fetch_add(1, Ordering::Relaxed);
-        registry.remove(id, Status::resource_exhausted("client queue limit reached"));
+        let status = Status::resource_exhausted("client queue limit reached");
+        if output.fail(status.clone()) {
+            registry
+                .metrics
+                .slow_clients
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        registry.remove(id, status);
     }
 }
 
@@ -275,7 +282,7 @@ pub(crate) async fn serve(g: Grpc, clients: TcpListener, pool: TunnelPool) -> Re
         .apply_access(access::AccessPolicy::new(managed)?);
     let service = Service {
         hub: hub.clone(),
-        cfg: cfg.clone(),
+        cfg: Arc::new(cfg.clone()),
         metrics: metrics.clone(),
         queue_bytes: Arc::new(Semaphore::new(cfg.total_queue_bytes)),
         initial_timeout: Duration::from_millis(g.connect_timeout_ms),

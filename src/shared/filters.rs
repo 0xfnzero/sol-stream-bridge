@@ -53,10 +53,11 @@ pub fn account_count(r: &SubscribeRequest) -> usize {
             .map(|f| f.account_include.len())
             .sum::<usize>()
 }
-pub fn validate(r: &SubscribeRequest, cfg: &SharedConfig) -> Result<(), Status> {
+pub fn validate(r: &SubscribeRequest, cfg: &SharedConfig, user: &str) -> Result<(), Status> {
+    let limits = cfg.for_user(user);
     if r.encoded_len() > cfg.max_request_bytes
-        || filter_count(r) > cfg.max_filters_per_client
-        || account_count(r) > cfg.max_accounts_per_client
+        || filter_count(r) > limits.max_filters_per_client
+        || account_count(r) > limits.max_accounts_per_client
     {
         return Err(Status::resource_exhausted(
             "subscription exceeds per-client limits",
@@ -88,7 +89,7 @@ pub fn validate(r: &SubscribeRequest, cfg: &SharedConfig) -> Result<(), Status> 
             return Err(invalid("filter names must be at most 64 bytes"));
         }
     }
-    if !cfg.allow_accounts && !r.accounts.is_empty() {
+    if !limits.allow_accounts && !r.accounts.is_empty() {
         return Err(Status::permission_denied(
             "account updates disabled for this user",
         ));
@@ -170,7 +171,7 @@ pub fn validate(r: &SubscribeRequest, cfg: &SharedConfig) -> Result<(), Status> 
         return Err(Status::permission_denied("entry subscriptions disabled"));
     }
     for f in r.blocks.values() {
-        if !cfg.allow_accounts && f.include_accounts == Some(true) {
+        if !limits.allow_accounts && f.include_accounts == Some(true) {
             return Err(Status::permission_denied(
                 "account updates disabled for this user",
             ));
@@ -254,6 +255,43 @@ pub fn aggregate<'a>(
         merge("e", id, &r.entry, &mut out.request.entry, &mut out.routes);
     }
     out.accounts = account_count(&out.request);
+    check_aggregate(out, cfg)
+}
+
+/// Reuse content labels computed when a subscription changes, not on every union rebuild.
+pub fn combine<'a>(
+    clients: impl Iterator<Item = &'a Aggregate>,
+    cfg: &SharedConfig,
+) -> Result<Aggregate, Status> {
+    fn extend<T: Clone>(dst: &mut HashMap<String, T>, src: &HashMap<String, T>) {
+        for (label, filter) in src {
+            if !dst.contains_key(label) {
+                dst.insert(label.clone(), filter.clone());
+            }
+        }
+    }
+    let mut out = aggregate(std::iter::empty(), cfg)?;
+    for client in clients {
+        let r = &client.request;
+        extend(&mut out.request.accounts, &r.accounts);
+        extend(&mut out.request.transactions, &r.transactions);
+        extend(&mut out.request.transactions_status, &r.transactions_status);
+        extend(&mut out.request.slots, &r.slots);
+        extend(&mut out.request.blocks, &r.blocks);
+        extend(&mut out.request.blocks_meta, &r.blocks_meta);
+        extend(&mut out.request.entry, &r.entry);
+        for (label, routes) in &client.routes {
+            out.routes
+                .entry(label.clone())
+                .or_default()
+                .extend(routes.iter().cloned());
+        }
+    }
+    out.accounts = account_count(&out.request);
+    check_aggregate(out, cfg)
+}
+
+fn check_aggregate(out: Aggregate, cfg: &SharedConfig) -> Result<Aggregate, Status> {
     if filter_count(&out.request) > cfg.max_filters
         || out.accounts > cfg.max_accounts
         || out.request.encoded_len() > cfg.max_request_bytes

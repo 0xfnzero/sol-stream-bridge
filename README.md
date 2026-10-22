@@ -8,11 +8,10 @@
 </div>
 
 <p align="center">
-  <a href="https://fnzero.dev">Website</a> ·
-  <a href="README.md">English</a> · <a href="README_CN.md">中文</a> ·
-  <a href="clients/README.md">Bot clients</a> ·
-  <a href="docs/DEPLOYMENT.md">Deployment</a> ·
-  <a href="RELEASE_NOTES.md">Releases</a>
+    <a href="README.md">English</a> · <a href="README_CN.md">中文</a> ·
+    <a href="https://t.me/fnzero_group">Telegram</a> ·
+    <a href="https://discord.gg/vuazbGkqQE">Discord</a> ·
+    <a href="https://fnzero.dev/">Website</a>
 </p>
 
 **Sol Stream Bridge** is a Rust forwarding bridge for Solana Shred UDP and Yellowstone gRPC streams. Forward Jito ShredStream proxy output, raw Shred sent to an IP and port, and Yellowstone Geyser subscriptions to another server. Run Shred and gRPC together or separately over public or reachable private networks; Rust, Go and TypeScript bot SDKs deliver raw packets and decoded updates to your trading bot.
@@ -21,10 +20,11 @@
 
 Go imports retain the original module path for compatibility with published versions.
 
-Current release: **[v0.1.1](https://github.com/0xfnzero/sol-stream-bridge/releases/tag/v0.1.1)**. Server binaries and all three Bot clients use version **0.1.1**. See [release notes](RELEASE_NOTES.md) for fixes and upgrade instructions.
+Current release: **[v0.2.0](https://github.com/0xfnzero/sol-stream-bridge/releases/tag/v0.2.0)**. Server binaries and all three Bot clients use version **0.2.0**. See [release notes](RELEASE_NOTES.md) for fixes and upgrade instructions.
 
 ## Contents
 
+- [Related SDKs](#related-sdks)
 - [Features](#features)
 - [Shared subscriptions and API Keys](#shared)
 - [React dashboard](#dashboard)
@@ -34,7 +34,29 @@ Current release: **[v0.1.1](https://github.com/0xfnzero/sol-stream-bridge/releas
 - [Bot clients](#clients)
 - [Runtime behavior](#behavior)
 - [Development](#development)
-- [Related projects](#related)
+- [Examples](examples/README.md)
+- [Documentation](docs/README.md)
+
+<a id="related"></a>
+<a id="related-sdks"></a>
+
+## Related SDKs
+
+Repositories are versioned independently; follow each SDK’s installation guide for compatible dependencies.
+
+| Language | Repository | Purpose | Version |
+|----------|------------|-------------|---------|
+| Rust | [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk) | DEX transaction and account event parsing | `v0.9.1` |
+| Node.js | [sol-parser-sdk-nodejs](https://github.com/0xfnzero/sol-parser-sdk-nodejs) | DEX transaction and account event parsing | `v0.9.1` |
+| Python | [sol-parser-sdk-python](https://github.com/0xfnzero/sol-parser-sdk-python) | DEX transaction and account event parsing | `v0.9.1` |
+| Go | [sol-parser-sdk-golang](https://github.com/0xfnzero/sol-parser-sdk-golang) | DEX transaction and account event parsing | `v0.9.1` |
+| Rust | [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk) | Transaction building, signing and multi-channel submission | `v9.0.1` |
+| Node.js | [sol-trade-sdk-nodejs](https://github.com/0xfnzero/sol-trade-sdk-nodejs) | Transaction building, signing and multi-channel submission | `v9.0.1` |
+| Python | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | Transaction building, signing and multi-channel submission | `v9.0.1` |
+| Go | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | Transaction building, signing and multi-channel submission | `v9.0.1` |
+| Rust | [sol-shred-sdk](https://github.com/0xfnzero/sol-shred-sdk) | Raw shred decoding and ShredStream instruction events | `v6.0.1` |
+| Rust | [solana-streamer](https://github.com/0xfnzero/solana-streamer) | gRPC / ShredStream subscriptions and event streaming | `v5.0.0` |
+| Rust | [sol-trade-router-sdk](https://github.com/0xfnzero/sol-trade-router-sdk) | On-chain multi-hop router and client SDK | `v0.3.0` |
 
 <a id="features"></a>
 ## Features
@@ -49,9 +71,9 @@ Current release: **[v0.1.1](https://github.com/0xfnzero/sol-stream-bridge/releas
 8. Prebuilt installers, checksum verification, configuration-preserving upgrades, optional systemd service, counters and connection limits.
 
 <a id="shared"></a>
-## Shared subscriptions and API Keys (unreleased)
+## Shared subscriptions and API Keys
 
-Source on `main` adds **one upstream subscription for multiple users**, optional API Keys (`x-token` or `x-api-key`), IP checks, per-user quotas and account-update permissions. Released **v0.1.1 does not include these features**. Build from source; see the [complete configuration and operating guide](docs/SHARED.md).
+v0.2.0 adds **one upstream subscription for multiple users**, optional API Keys (`x-token` or `x-api-key`), IP checks, per-user quotas and account-update permissions. Install the release package or build from source; see the [complete configuration and operating guide](docs/SHARED.md).
 
 Add to receiver B's configuration (keep its existing tunnel fields):
 
@@ -83,11 +105,11 @@ The Bot sends Alice's key; the provider credential stays on B. IP and Key checks
 For a provider limited to one connection, also set `[grpc] max_connections = 1` on source A to bound connections during teardown/reconnect. Use `http://IP:port` on trusted private networks. Client-facing TLS is optional and independent of tunnel/provider TLS. Full example: [config.shared-receiver.toml](config.shared-receiver.toml). Omit `[grpc.shared]` to retain TCP passthrough. Shared mode supports Subscribe/Ping/GetVersion with a fixed commitment; other RPCs, replay and data slices are outside its current scope.
 
 <a id="dashboard"></a>
-## React operator dashboard (unreleased)
+## React operator dashboard
 
-`main` includes a React + TypeScript dashboard for shared gRPC operators: live connection and delivery statistics, user key creation/rotation/disable, subscription and account quotas, account-update permission, IP allowlists and individual stream disconnects. Changes persist and apply live; revisions prevent stale edits from overwriting newer settings.
+v0.2.0 includes a React + TypeScript dashboard for shared gRPC operators: live connection and delivery statistics, user key creation/rotation/disable, subscription and account quotas, account-update permission, IP allowlists and individual stream disconnects. Changes persist and apply live; revisions prevent stale edits from overwriting newer settings.
 
-Run `./setup-dashboard.sh` on the shared receiver, enable `[grpc.shared.dashboard]` as instructed, and start the server. The default URL is `http://127.0.0.1:8080`; use SSH forwarding for remote access. Shred routes and global upstream settings remain in TOML. **Published v0.1.1 does not include this feature.** See [dashboard setup, credentials and backups](docs/DASHBOARD.md).
+Run `./setup-dashboard.sh` on the shared receiver, enable `[grpc.shared.dashboard]` as instructed, and start the server. The default URL is `http://127.0.0.1:8080`; use SSH forwarding for remote access. Shred routes and global upstream settings remain in TOML. Linux packages bundle the dashboard assets; Node.js is not needed at runtime. See [dashboard setup, credentials and backups](docs/DASHBOARD.md).
 
 Setup prints a random nine-character username and initial password once in the terminal. The login page supports password show/hide; first login requires a password change. Later changes require the current password and revoke all dashboard sessions without affecting Bot keys or streams. Saved passwords use Argon2id hashes.
 
@@ -116,12 +138,12 @@ ROLE=source ./install.sh
 cd "$HOME/stream-bridge"
 ```
 
-Roles: `source`, `receiver`, `shred-only`, `private-source`, `private-receiver`. Receiver setup requires `openssl`: `receiver` creates a token and a self-signed TLS certificate; `private-receiver` creates only a token. Configure addresses and share credentials before starting.
+Roles: `source`, `receiver`, `shared-receiver`, `shred-only`, `private-source`, `private-receiver`. Receiver setup requires `openssl`: `receiver` / `shared-receiver` create a token and a self-signed TLS certificate; `private-receiver` creates only a token. Configure addresses and share credentials before starting.
 
 Pin a version or directory:
 
 ```bash
-VERSION=v0.1.1 ROLE=source INSTALL_DIR=/opt/stream-bridge ./install.sh
+VERSION=v0.2.0 ROLE=source INSTALL_DIR=/opt/stream-bridge ./install.sh
 ```
 
 The directory must be writable. Unmanaged directories are never replaced. Upgrades preserve root TOML files (including dashboard state and password hashes), `.bridge-token`, `.dashboard-initial-credentials`, legacy `.dashboard-token` and `certs/`; the previous installation is retained as `.backup.*`. Restart the process after upgrading. Backups contain credentials and must be protected accordingly.
@@ -184,11 +206,11 @@ Install the SDK directly into your Bot project from [crates.io](https://crates.i
 
 ```bash
 # Rust: raw Shred and typed Yellowstone updates
-cargo add stream-bridge-client@0.1.1 --features yellowstone
+cargo add stream-bridge-client@0.2.0 --features yellowstone
 # Go
-go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.1
+go get github.com/0xfnzero/stream-bridge/clients/go@v0.2.0
 # Node.js / TypeScript
-npm install stream-bridge-client@0.1.1
+npm install stream-bridge-client@0.2.0
 ```
 
 See [client integration](clients/README.md) for API examples and lifecycle handling. All three standalone source examples use `clients/client.toml`:
@@ -199,7 +221,7 @@ cargo run --locked --example receive --features yellowstone -- clients/client.to
 (cd clients/typescript && npm ci && npm run receive -- ../client.toml)
 ```
 
-Rust can embed the receiver inside a Bot process. Go and TypeScript clients connect to the running Rust receiver. Clients deliver raw Shred bytes with source/timestamp and typed Yellowstone transaction, account, slot and other supported updates. The npm package also includes a receiver CLI: `npx stream-bridge-client@0.1.1 /path/to/client.toml`. SDKs receive data inside your Bot; the bridge service is installed separately.
+Rust can embed the receiver inside a Bot process. Go and TypeScript clients connect to the running Rust receiver. Clients deliver raw Shred bytes with source/timestamp and typed Yellowstone transaction, account, slot and other supported updates. The npm package also includes a receiver CLI: `npx stream-bridge-client@0.2.0 /path/to/client.toml`. SDKs receive data inside your Bot; the bridge service is installed separately.
 
 <a id="behavior"></a>
 ## Runtime behavior
@@ -233,11 +255,3 @@ python3 -m unittest discover -s tests -p 'test_install.py'
 ```
 
 The smoke test uses a local mock Yellowstone and real source/receiver processes. It checks Shred, slot and transaction delivery plus shutdown for all three examples over TLS by default, or plaintext TCP with `--plaintext`. Configure a live upstream separately for production verification.
-
-<a id="related"></a>
-## Related projects
-
-- [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk): Solana DEX transaction construction and submission.
-- [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk): transaction and account event parsing.
-- [sol-shred-sdk](https://github.com/0xfnzero/sol-shred-sdk): raw Shred decoding.
-- [grpc-benchmark](https://github.com/0xfnzero/grpc-benchmark): gRPC and Shred latency measurement.

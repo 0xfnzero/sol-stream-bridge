@@ -1,6 +1,6 @@
 # stream-bridge
 
-> 下文主要描述默认 TCP 透传模式；尚未发布的共享上游、用户 API Key、额度和独立客户端/上游 TLS 配置见 [shared mode / 共享模式](SHARED_CN.md).
+> 下文主要描述默认 TCP 透传模式；v0.2.0 新增的共享上游、用户 API Key、额度和独立客户端/上游 TLS 配置见 [shared mode / 共享模式](SHARED_CN.md).
 
 使用 Rust 将本机的 Solana Shred 和 Yellowstone gRPC 提供给另一台服务器。**一个进程支持同时转发 Shred 和 gRPC**，两者运行于独立异步任务；可配置多路 UDP，也可只启用其中一种。
 

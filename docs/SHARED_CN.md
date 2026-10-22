@@ -1,12 +1,12 @@
-# Yellowstone 共享订阅（尚未发布）
+# Yellowstone 共享订阅
 
 [English](SHARED.md) · [中文](SHARED_CN.md)
 
-本功能在 `main` 源码中，已发布的 v0.1.1 二进制和客户端包不包含这些新配置/API。服务端使用 `cargo build --release --locked` 编译；新 `api_key` API 使用本地 SDK，已有标准 Yellowstone 客户端也可通过原来的 `x-token` 参数接入。
+本功能已包含在 **v0.2.0** Linux 安装包和三语言客户端中。接收端可用 `VERSION=v0.2.0 ROLE=shared-receiver ./install.sh` 安装，再编辑安装目录中的 `config.toml`；源码部署可用 `cargo build --release --locked` 编译。客户端使用 `api_key`，已有标准 Yellowstone 客户端也可通过原来的 `x-token` 参数接入。
 
 在接收端 B 增加 `[grpc.shared]` 即启用共享模式，发送端 A 保留原来的隧道配置。一个 receiver 只维持一条活动上游 TCP 连接和一条 `Subscribe` 流，合并各用户过滤器。内容相同的过滤器在上游去重；通过上游返回的 `filters` 标签分发给匹配用户，并恢复各自原始过滤器名称。只订阅 A 程序的用户不会收到仅带 B 程序标签的数据；无标签、未知标签的数据不广播。数据路径没有定时攒批等待。
 
-完整示例见 [config.shared-receiver.toml](../config.shared-receiver.toml)。先用 `./setup.sh receiver` 生成隧道凭据，修改新模板后执行 `./run.sh config.shared-receiver.toml --check`、`./run.sh config.shared-receiver.toml`。源码目录下脚本会自动编译。按部署说明把隧道令牌和证书复制给 A。共享 gRPC 可以与原有 `[[shred]]` 同时运行。
+完整示例见 [config.shared-receiver.toml](../config.shared-receiver.toml)。安装包将模板放在 `configs/`，运行时使用安装根目录的 `config.toml`。源码部署时先用 `./setup.sh receiver` 生成隧道凭据，修改新模板后执行 `./run.sh config.shared-receiver.toml --check`、`./run.sh config.shared-receiver.toml`。源码目录下脚本会自动编译。按部署说明把隧道令牌和证书复制给 A。共享 gRPC 可以与原有 `[[shred]]` 同时运行。
 
 ## API Key 与 IP 白名单
 
@@ -22,6 +22,7 @@ API Key 验证需要共享模式；没有 `[grpc.shared]` 却配置非空 Key �
 
 - `grpc.max_connections`：接收端所有下游 TCP 连接上限，包括空闲连接；发送端 A 的同名参数单独限制该发送端的上游连接数。
 - `max_subscriptions`：全局活动 `Subscribe` 流上限，默认 64。`max_subscriptions_per_key`：每用户活动流上限，默认 2。已认证但还在等待首个订阅消息的请求，也占用上述全局及用户名额。同一 HTTP/2 连接上的多个订阅分别计数。按 Key 限制的是通过认证的订阅数，不是尚未认证的空闲 TCP socket。
+- `max_subscription_changes_per_second`：每个用户在一秒计数窗口内可尝试的新建订阅/过滤器变更次数，默认 10，范围 1–1000。同一用户的多条流和重连共用额度，失败尝试也计数；完全相同的订阅和心跳不计数。超限时仅请求流返回 `ResourceExhausted`，其他流继续工作；至少等待一秒再重试。
 - `max_filters_per_client` / `max_accounts_per_client`：单条订阅上限，默认 8 / 128。`max_filters_per_key` / `max_accounts_per_key`：用户所有订阅的累计值，去重前计算，默认 16 / 256；多开连接不能绕过累计额度。
 - `max_filters` / `max_accounts`：相同过滤器去重后的上游合并额度，默认 64 / 512。账户数按 account、owner、include、exclude、required 列表的显式引用次数计算，不是唯一链上地址数；不同过滤器重复引用同一地址仍分别计数。按供应商实际套餐设置这些值，程序不会自动推断其分类限制。
 - `[grpc.shared.users.alice]` 中的 `max_subscriptions`、`max_filters`、`max_accounts`、`allow_accounts` 覆盖该用户策略。过滤器/账户覆盖值同时限制单条订阅和该用户所有订阅累计值；上游全局上限仍生效。
@@ -49,3 +50,21 @@ API Key 验证需要共享模式；没有 `[grpc.shared]` 却配置非空 Key �
 开启 `metrics_listen = "127.0.0.1:9090"` 后访问 `http://127.0.0.1:9090/metrics`，仅允许非零端口的 loopback 监听。Gauge 包括下游连接数、订阅数、上游连接/流数量、过滤器数和账户引用数；Counter 包括拒绝次数、慢客户端、上游失败、接收更新和分发消息数，名称均以 `stream_bridge_` 开头。这是整体运行统计，不提供按用户计费或带宽用量统计。每 30 秒也输出统计日志，不记录 Key。
 
 执行 `cargo test --workspace --all-features --locked`，以及 `python3 tools/smoke_clients.py --shared`、`python3 tools/smoke_clients.py --shared --plaintext`。测试覆盖真实隧道共享、多用户分发、额度回滚、Key/IP 拒绝、慢用户隔离、半关闭、上游断线重连，以及三语言可运行示例。本地 mock 验证功能行为；生产吞吐、带宽和延迟仍需在实际上游和网络环境中测量。
+
+## 转发热路径
+
+每条上游消息读取不可变路由快照，无需获取管理状态的全局锁。过滤器哈希和规范化 protobuf 按订阅缓存；只命中一个过滤器的消息复用预先生成的接收者及别名。多个标签同时命中时，每个订阅者只收到一次消息，别名合并。队列额度继续生效，慢客户端批量移除后只重建一次共享订阅。
+
+订阅变更原子替换路由快照。已经开始分发或已经入队的消息可能携带旧过滤器名称完成交付，后续分发使用新快照。撤销权限会关闭邮箱并清空队列，旧快照也无法继续入队；已交给网络传输的数据无法撤回。这样不会因本地路由切换额外制造丢消息窗口；上游变更仍遵循前述异步生效、无回放边界。
+
+最后一个邮箱接收者可直接取得 protobuf 负载所有权，减少复制；仍有其他持有者时继续生成独立数据并替换各自的过滤器名称。清空队列时在邮箱锁外释放负载；gRPC 服务克隆共享不可变配置，避免重复复制用户表。这些优化不引入批量等待。
+
+在空闲机器上运行可重复的进程内微基准：
+
+```bash
+cargo test --lib --all-features --locked benchmark_shared_hot_paths -- --ignored --nocapture
+```
+
+输出 64 个订阅者分发、64 个用户各持有 8 个过滤器时变更单条订阅的 p50/p95/p99。比较时保持机器、构建模式及负载一致。测试不含网络 I/O、protobuf 编码及 Bot 处理，不能代表端到端延迟或生产吞吐。
+
+单接收者 128 KiB 账户负载的入队/出队测试：`cargo test --lib --all-features --locked benchmark_mailbox_payload_ownership -- --ignored --nocapture`。运行时避免并行构建或其他测试；负载分配发生在计时前，同样不包含网络与编码耗时。

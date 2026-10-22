@@ -12,10 +12,15 @@ mkdir -p release
 tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
 package="$tmp/stream-bridge"
-mkdir -p "$package/bin" "$package/configs" "$package/docs" "$package/clients"
+mkdir -p "$package/bin" "$package/configs" "$package/docs" "$package/clients" "$package/examples"
 cp "$binary" "$package/bin/"
 cp install.sh setup.sh setup-dashboard.sh run.sh install-service.sh README.md README_CN.md RELEASE_NOTES.md LICENSE "$package/"
 cp clients/README*.md clients/client.toml "$package/clients/"
+cp examples/README*.md "$package/examples/"
+for language in go typescript; do
+  mkdir -p "$package/clients/$language"
+  cp "clients/$language/README.md" "$package/clients/$language/"
+done
 cp config*.toml "$package/configs/"
 cp -R docs/. "$package/docs/"
 mkdir -p "$package/dashboard"

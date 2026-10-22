@@ -1,4 +1,4 @@
-# Shared Yellowstone receiver; unreleased/main. On source A set grpc.max_connections=1
+# Shared Yellowstone receiver; v0.2.0+. On source A set grpc.max_connections=1
 # to enforce a strict provider connection limit, including during TCP teardown.
 # Run ./setup.sh receiver once for tunnel credentials, then select this config.
 role = "receiver"
@@ -31,6 +31,7 @@ client_tls = false # localhost/trusted network: http://B_IP:10000
 commitment = "processed"
 max_subscriptions = 64
 max_subscriptions_per_key = 2
+max_subscription_changes_per_second = 10 # per user, includes new streams; identical updates are free
 max_filters_per_key = 16 # sum across a user's subscriptions, before deduplication
 max_accounts_per_key = 256
 max_filters_per_client = 8 # each Subscribe stream
@@ -60,7 +61,7 @@ max_filters = 8
 max_accounts = 64
 allow_accounts = true # explicit opt-in for account update subscriptions
 
-# Optional React operator dashboard (unreleased/main).
+# Optional React operator dashboard (v0.2.0+).
 # Run ./setup-dashboard.sh, then uncomment this entire table.
 # [grpc.shared.dashboard]
 # listen = "127.0.0.1:8080" # loopback only; remote access via SSH -L

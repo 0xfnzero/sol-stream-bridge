@@ -115,20 +115,25 @@ export async function request<T>(
   }
   return response.json() as Promise<T>;
 }
-export function limitsFromForm(form: HTMLFormElement): Effective {
+export function limitsFromForm(form: HTMLFormElement): Limits {
   const data = new FormData(form);
   const number = (name: string) => {
+    if (data.get(`${name}_inherit`) === "on") return null;
     const value = String(data.get(name));
     if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65536)
       throw new Error("额度必须是 1–65536 之间的整数。");
     return Number(value);
   };
   const filters = number("max_filters");
-  if (filters > 4096) throw new Error("过滤器额度最多为 4096。");
+  if (filters !== null && filters > 4096)
+    throw new Error("过滤器额度最多为 4096。");
   return {
     max_subscriptions: number("max_subscriptions"),
     max_filters: filters,
     max_accounts: number("max_accounts"),
-    allow_accounts: data.get("allow_accounts") === "on",
+    allow_accounts:
+      data.get("allow_accounts_inherit") === "on"
+        ? null
+        : data.get("allow_accounts") === "on",
   };
 }

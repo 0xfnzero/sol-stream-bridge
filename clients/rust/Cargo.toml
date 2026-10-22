@@ -1,6 +1,6 @@
 [package]
 name = "stream-bridge-client"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "Bot client SDK for receiving Solana Shred packets and typed Yellowstone gRPC updates"
 license = "MIT"

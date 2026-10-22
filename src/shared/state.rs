@@ -1,28 +1,39 @@
 use super::{
     access::{AccessPolicy, ManagedState},
-    filters::{self, Routes},
+    config::ResolvedLimits,
+    dispatch::{Destination, Dispatcher},
+    filters,
     metrics::Metrics,
     SharedConfig,
 };
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     net::IpAddr,
-    sync::{atomic::Ordering, Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{watch, Notify, OwnedSemaphorePermit, Semaphore};
-use yellowstone_grpc_proto::{prelude::*, prost::Message, tonic::Status};
+use yellowstone_grpc_proto::{prelude::*, tonic::Status};
 
 struct Queued {
     update: Arc<SubscribeUpdate>,
-    filters: Vec<String>,
+    filters: Arc<[String]>,
     _local: OwnedSemaphorePermit,
     _global: OwnedSemaphorePermit,
 }
+
 #[derive(Default)]
 struct Queue {
     items: VecDeque<Queued>,
     error: Option<Status>,
+}
+pub enum Delivery {
+    Sent,
+    Ignored,
+    Full,
 }
 pub struct Mailbox {
     queue: Mutex<Queue>,
@@ -31,6 +42,7 @@ pub struct Mailbox {
     bytes: Arc<Semaphore>,
     global: Arc<Semaphore>,
     pub closed: watch::Sender<bool>,
+    pub delivered: AtomicU64,
 }
 impl Mailbox {
     pub fn new(cfg: &SharedConfig, global: Arc<Semaphore>) -> Arc<Self> {
@@ -41,29 +53,33 @@ impl Mailbox {
             bytes: Arc::new(Semaphore::new(cfg.client_queue_bytes)),
             global,
             closed: watch::channel(false).0,
+            delivered: AtomicU64::new(0),
         })
     }
     pub fn send(
         &self,
         update: Arc<SubscribeUpdate>,
-        filters: Vec<String>,
+        filters: Arc<[String]>,
         encoded_bytes: usize,
-    ) -> bool {
+    ) -> Delivery {
         let mut queue = self.queue.lock().unwrap();
-        if queue.error.is_some() || queue.items.len() >= self.capacity {
-            return false;
+        if queue.error.is_some() {
+            return Delivery::Ignored;
+        }
+        if queue.items.len() >= self.capacity {
+            return Delivery::Full;
         }
         let bytes = encoded_bytes
             .saturating_add(filters.iter().map(|s| s.len() + 8).sum::<usize>())
             .max(1);
         let Ok(bytes) = u32::try_from(bytes) else {
-            return false;
+            return Delivery::Full;
         };
         let Ok(local) = self.bytes.clone().try_acquire_many_owned(bytes) else {
-            return false;
+            return Delivery::Full;
         };
         let Ok(global) = self.global.clone().try_acquire_many_owned(bytes) else {
-            return false;
+            return Delivery::Full;
         };
         queue.items.push_back(Queued {
             update,
@@ -73,18 +89,22 @@ impl Mailbox {
         });
         drop(queue);
         self.notify.notify_one();
-        true
+        Delivery::Sent
     }
-    pub fn fail(&self, error: Status) {
+    /// Returns true only for the first termination, so concurrent cleanup counts once.
+    pub fn fail(&self, error: Status) -> bool {
         let mut queue = self.queue.lock().unwrap();
-        if queue.error.is_none() {
-            queue.error = Some(error);
+        if queue.error.is_some() {
+            return false;
         }
+        queue.error = Some(error);
         // Release queued data and budgets immediately, even if the peer stops reading.
-        queue.items.clear();
+        let abandoned = std::mem::take(&mut queue.items);
         drop(queue);
         self.closed.send_replace(true);
         self.notify.notify_one();
+        drop(abandoned);
+        true
     }
     pub async fn recv(&self) -> Result<SubscribeUpdate, Status> {
         loop {
@@ -96,10 +116,11 @@ impl Mailbox {
                 }
                 queue.items.pop_front()
             };
-            // Large protobuf clones must not hold the queue lock and stall fanout.
+            // Move the body when this is its last owner (especially one Bot); otherwise
+            // clone outside the lock so consumers can mutate their own protobuf safely.
             if let Some(item) = item {
-                let mut update = (*item.update).clone();
-                update.filters = item.filters;
+                let mut update = Arc::unwrap_or_clone(item.update);
+                update.filters = item.filters.to_vec();
                 return Ok(update);
             }
             notified.await;
@@ -110,8 +131,8 @@ struct Client {
     user: String,
     peer: IpAddr,
     started_at_ms: u64,
-    delivered: u64,
     request: SubscribeRequest,
+    prepared: filters::Aggregate,
     mailbox: Arc<Mailbox>,
 }
 pub struct Registry {
@@ -119,7 +140,8 @@ pub struct Registry {
     pub access: AccessPolicy,
     clients: BTreeMap<u64, Client>,
     pending: HashMap<String, usize>,
-    routes: Routes,
+    change_windows: HashMap<String, (Instant, usize)>,
+    pub dispatcher: Arc<Dispatcher>,
     upstream: watch::Sender<Arc<SubscribeRequest>>,
     pub metrics: Arc<Metrics>,
     next_id: u64,
@@ -140,7 +162,8 @@ impl Registry {
                 access: AccessPolicy::new(ManagedState::default()).expect("empty access policy"),
                 clients: BTreeMap::new(),
                 pending: HashMap::new(),
-                routes: HashMap::new(),
+                change_windows: HashMap::new(),
+                dispatcher: Arc::new(Dispatcher::new(metrics.clone())),
                 upstream,
                 metrics,
                 next_id: 0,
@@ -177,6 +200,29 @@ impl Registry {
             }
         }
     }
+    fn charge_change(&mut self, user: &str, now: Instant) -> Result<(), Status> {
+        // Retain recent disconnected users so reconnecting cannot reset the limit.
+        // Expired entries are discarded when admitting a new identity.
+        if !self.change_windows.contains_key(user) {
+            self.change_windows
+                .retain(|_, (start, _)| now.duration_since(*start) < Duration::from_secs(1));
+        }
+        let (start, count) = self
+            .change_windows
+            .entry(user.to_owned())
+            .or_insert((now, 0));
+        if now.duration_since(*start) >= Duration::from_secs(1) {
+            *start = now;
+            *count = 0;
+        }
+        if *count >= self.cfg.max_subscription_changes_per_second {
+            return Err(Status::resource_exhausted(
+                "subscription change rate limit reached; retry after one second",
+            ));
+        }
+        *count += 1;
+        Ok(())
+    }
     fn publish(&mut self, aggregate: filters::Aggregate) {
         self.metrics
             .subscriptions
@@ -187,7 +233,29 @@ impl Registry {
         self.metrics
             .accounts
             .store(aggregate.accounts, Ordering::Relaxed);
-        self.routes = aggregate.routes;
+        let routes = aggregate
+            .routes
+            .into_iter()
+            .map(|(label, aliases)| {
+                let mut grouped = BTreeMap::<u64, Vec<String>>::new();
+                for (id, name) in aliases {
+                    grouped.entry(id).or_default().push(name);
+                }
+                let destinations = grouped
+                    .into_iter()
+                    .map(|(id, aliases)| {
+                        let client = &self.clients[&id];
+                        Destination {
+                            id,
+                            mailbox: client.mailbox.clone(),
+                            aliases: aliases.into(),
+                        }
+                    })
+                    .collect();
+                (label, destinations)
+            })
+            .collect();
+        self.dispatcher.publish(routes);
         // No redundant update when only downstream aliases/consumers change.
         if **self.upstream.borrow() != aggregate.request {
             self.upstream.send_replace(Arc::new(aggregate.request));
@@ -198,7 +266,7 @@ impl Registry {
         user: &str,
         replacing: Option<u64>,
         request: &SubscribeRequest,
-        limits: &SharedConfig,
+        limits: &ResolvedLimits,
     ) -> Result<(), Status> {
         let (mut filters, mut accounts) = (
             filters::filter_count(request),
@@ -233,12 +301,12 @@ impl Registry {
         request: SubscribeRequest,
         mailbox: Arc<Mailbox>,
     ) -> Result<u64, Status> {
+        self.charge_change(&user, Instant::now())?;
         let limits = self.cfg.for_user(&user);
-        filters::validate(&request, &limits)?;
+        filters::validate(&request, &self.cfg, &user)?;
         self.check_user_budget(&user, None, &request, &limits)?;
         if self.clients.len() >= self.cfg.max_subscriptions
-            || self.clients.values().filter(|c| c.user == user).count()
-                >= limits.max_subscriptions_per_key
+            || self.clients.values().filter(|c| c.user == user).count() >= limits.max_subscriptions
         {
             return Err(Status::resource_exhausted("subscription limit reached"));
         }
@@ -247,11 +315,12 @@ impl Registry {
             .checked_add(1)
             .ok_or_else(|| Status::resource_exhausted("subscription IDs exhausted"))?;
         // Check the candidate union before mutating any existing subscription.
-        let aggregate = filters::aggregate(
+        let prepared = filters::aggregate(std::iter::once((id, &request)), &self.cfg)?;
+        let aggregate = filters::combine(
             self.clients
-                .iter()
-                .map(|(id, c)| (*id, &c.request))
-                .chain(std::iter::once((id, &request))),
+                .values()
+                .map(|c| &c.prepared)
+                .chain(std::iter::once(&prepared)),
             &self.cfg,
         )?;
         self.next_id = id;
@@ -264,8 +333,8 @@ impl Registry {
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis() as u64,
-                delivered: 0,
                 request,
+                prepared,
                 mailbox,
             },
         );
@@ -277,27 +346,37 @@ impl Registry {
             .clients
             .get(&id)
             .ok_or_else(|| Status::cancelled("subscription closed"))?;
-        let limits = self.cfg.for_user(&client.user);
-        filters::validate(&request, &limits)?;
-        self.check_user_budget(&client.user, Some(id), &request, &limits)?;
-        let aggregate = filters::aggregate(
+        // Queue overflow can close a mailbox before deferred registry cleanup.
+        if *client.mailbox.closed.borrow() {
+            return Err(Status::cancelled("subscription closed"));
+        }
+        // Access/limit changes revoke affected streams before this can run.
+        if client.request == request {
+            return Ok(());
+        }
+        let user = client.user.clone();
+        self.charge_change(&user, Instant::now())?;
+        let limits = self.cfg.for_user(&user);
+        filters::validate(&request, &self.cfg, &user)?;
+        self.check_user_budget(&user, Some(id), &request, &limits)?;
+        let prepared = filters::aggregate(std::iter::once((id, &request)), &self.cfg)?;
+        let aggregate = filters::combine(
             self.clients
                 .iter()
-                .map(|(key, c)| (*key, if *key == id { &request } else { &c.request })),
+                .map(|(key, c)| if *key == id { &prepared } else { &c.prepared }),
             &self.cfg,
         )?;
-        self.clients.get_mut(&id).unwrap().request = request;
+        let client = self.clients.get_mut(&id).unwrap();
+        client.request = request;
+        client.prepared = prepared;
         self.publish(aggregate);
         Ok(())
     }
     pub fn remove(&mut self, id: u64, status: Status) {
         if let Some(client) = self.clients.remove(&id) {
             client.mailbox.fail(status);
-            let aggregate = filters::aggregate(
-                self.clients.iter().map(|(id, c)| (*id, &c.request)),
-                &self.cfg,
-            )
-            .expect("removal cannot increase limits");
+            let aggregate = filters::combine(self.clients.values().map(|c| &c.prepared), &self.cfg)
+                .expect("removal cannot increase limits");
             self.publish(aggregate);
         }
     }
@@ -338,18 +417,15 @@ impl Registry {
                     ));
                 }
             }
-            let aggregate = filters::aggregate(
-                self.clients.iter().map(|(id, c)| (*id, &c.request)),
-                &self.cfg,
-            )
-            .expect("removal cannot increase limits");
+            let aggregate = filters::combine(self.clients.values().map(|c| &c.prepared), &self.cfg)
+                .expect("removal cannot increase limits");
             self.publish(aggregate);
         }
     }
     pub fn subscriptions(&self) -> Vec<serde_json::Value> {
         self.clients.iter().take(200).map(|(id, client)| serde_json::json!({
             "id": id.to_string(), "user": client.user, "peer": client.peer,
-            "started_at_ms": client.started_at_ms, "delivered": client.delivered,
+            "started_at_ms": client.started_at_ms, "delivered": client.mailbox.delivered.load(Ordering::Relaxed),
             "filters": filters::filter_count(&client.request), "accounts": filters::account_count(&client.request),
         })).collect()
     }
@@ -380,39 +456,54 @@ impl Registry {
         self.remove(id, Status::cancelled("disconnected by administrator"));
         true
     }
+    #[cfg(test)]
     pub fn dispatch(&mut self, update: SubscribeUpdate) {
-        self.metrics.updates.fetch_add(1, Ordering::Relaxed);
-        let mut recipients: HashMap<u64, Vec<String>> = HashMap::new();
-        for label in &update.filters {
-            if let Some(routes) = self.routes.get(label) {
-                for (id, name) in routes {
-                    let names = recipients.entry(*id).or_default();
-                    if !names.contains(name) {
-                        names.push(name.clone());
-                    }
-                }
-            }
-        }
-        // Unlabelled/unknown updates never get broadcast to arbitrary clients.
-        let encoded_bytes = update.encoded_len();
-        let update = Arc::new(update);
-        let mut slow = Vec::new();
-        for (id, names) in recipients {
-            if let Some(client) = self.clients.get_mut(&id) {
-                if client.mailbox.send(update.clone(), names, encoded_bytes) {
-                    client.delivered = client.delivered.saturating_add(1);
-                    self.metrics.delivered.fetch_add(1, Ordering::Relaxed);
-                } else {
-                    slow.push(id);
-                }
-            }
-        }
+        let slow = self.dispatcher.dispatch(update);
+        self.remove_slow(slow);
+    }
+    pub fn remove_slow(&mut self, slow: Vec<u64>) {
+        let mut removed = 0;
         for id in slow {
-            self.metrics.slow_clients.fetch_add(1, Ordering::Relaxed);
-            self.remove(
-                id,
-                Status::resource_exhausted("client queue limit reached; reconnect and resubscribe"),
-            );
+            if let Some(client) = self.clients.remove(&id) {
+                client.mailbox.fail(Status::resource_exhausted(
+                    "client queue limit reached; reconnect and resubscribe",
+                ));
+                removed += 1;
+            }
         }
+        if removed != 0 {
+            let aggregate = filters::combine(self.clients.values().map(|c| &c.prepared), &self.cfg)
+                .expect("removal cannot increase limits");
+            self.publish(aggregate);
+        }
+    }
+}
+
+#[cfg(test)]
+mod rate_tests {
+    use super::*;
+
+    #[test]
+    fn change_windows_expire_without_sleep_and_prune_inactive_users() {
+        let cfg = SharedConfig {
+            max_subscription_changes_per_second: 2,
+            ..Default::default()
+        };
+        let (hub, _) = Registry::new(cfg, Arc::default());
+        let mut registry = hub.lock().unwrap();
+        let now = Instant::now();
+        registry.charge_change("alice", now).unwrap();
+        registry.charge_change("alice", now).unwrap();
+        assert!(registry
+            .charge_change("alice", now + Duration::from_millis(999))
+            .is_err());
+        registry.charge_change("bob", now).unwrap();
+        registry
+            .charge_change("alice", now + Duration::from_secs(1))
+            .unwrap();
+        registry
+            .charge_change("carol", now + Duration::from_secs(2))
+            .unwrap();
+        assert_eq!(registry.change_windows.len(), 1);
     }
 }

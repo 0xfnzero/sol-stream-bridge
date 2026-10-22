@@ -12,7 +12,10 @@ export interface ShredPacket { data: Buffer; peer: dgram.RemoteInfo; receivedAt:
 
 /** Single-consumer async iterator. A full UDP queue drops the newest packet. */
 export class ShredReceiver implements AsyncIterable<ShredPacket> {
-  private readonly queue: ShredPacket[] = [];
+  // Ring indices avoid shifting every retained packet on each read.
+  private readonly queue: (ShredPacket | undefined)[] = [];
+  private head = 0;
+  private queued = 0;
   private pending?: { resolve: (value: IteratorResult<ShredPacket>) => void; reject: (error: Error) => void };
   private ended = false;
   private failure?: Error;
@@ -20,10 +23,14 @@ export class ShredReceiver implements AsyncIterable<ShredPacket> {
   private constructor(private readonly socket: dgram.Socket, private readonly capacity: number, allowed?: BlockList) {
     socket.on("message", (data, peer) => {
       if (allowed && !allowed.check(peer.address, peer.family === "IPv6" ? "ipv6" : "ipv4")) return;
+      if (this.ended) return;
+      if (!this.pending && this.queued === capacity) { this.droppedPackets++; return; }
       const packet = { data, peer, receivedAt: new Date() };
       if (this.pending) { const p = this.pending; this.pending = undefined; p.resolve({ done: false, value: packet }); }
-      else if (this.queue.length < capacity) this.queue.push(packet);
-      else this.droppedPackets++;
+      else {
+        this.queue[(this.head + this.queued) % capacity] = packet;
+        this.queued++;
+      }
     });
     socket.on("error", error => { this.failure = error; this.close(); });
     socket.on("close", () => this.finish());
@@ -54,6 +61,7 @@ export class ShredReceiver implements AsyncIterable<ShredPacket> {
   localAddress(): AddressInfo { return this.socket.address(); }
   private finish(): void {
     this.ended = true;
+    if (this.failure) { this.queue.length = 0; this.queued = 0; this.head = 0; }
     if (this.pending) {
       const p = this.pending; this.pending = undefined;
       if (this.failure) p.reject(this.failure); else p.resolve({ done: true, value: undefined });
@@ -66,8 +74,13 @@ export class ShredReceiver implements AsyncIterable<ShredPacket> {
   }
   async next(): Promise<IteratorResult<ShredPacket>> {
     if (this.failure) throw this.failure;
-    const value = this.queue.shift();
-    if (value) return { done: false, value };
+    if (this.queued) {
+      const value = this.queue[this.head]!;
+      this.queue[this.head] = undefined;
+      this.head = (this.head + 1) % this.capacity;
+      this.queued--;
+      return { done: false, value };
+    }
     if (this.ended) return { done: true, value: undefined };
     if (this.pending) throw new Error("Only one ShredReceiver reader is supported");
     return new Promise((resolve, reject) => { this.pending = { resolve, reject }; });

@@ -60,6 +60,7 @@ pub async fn run(
     metrics: Arc<Metrics>,
 ) -> Result<()> {
     let builder = builder(&g, &cfg)?;
+    let dispatcher = hub.lock().unwrap().dispatcher.clone();
     // Hold the permit for the receiver-side tunnel socket lifetime. Also cap
     // source max_connections at 1 for strict provider limits during TCP teardown.
     let one_connection = Arc::new(Semaphore::new(1));
@@ -117,7 +118,10 @@ pub async fn run(
                         match &update.update_oneof {
                             Some(subscribe_update::UpdateOneof::Ping(_)) => { let _ = ping_tx.try_send(()); }
                             Some(subscribe_update::UpdateOneof::Pong(_)) => {}
-                            _ => hub.lock().unwrap().dispatch(update),
+                            _ => {
+                                let slow = dispatcher.dispatch(update);
+                                if !slow.is_empty() { hub.lock().unwrap().remove_slow(slow); }
+                            },
                         }
                     }
                 }

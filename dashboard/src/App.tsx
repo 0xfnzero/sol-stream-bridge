@@ -1,5 +1,4 @@
 import {
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -10,12 +9,15 @@ import {
   ApiError,
   limitsFromForm,
   request,
-  type Effective,
+  type Limits,
   type LoginResult,
   type Snapshot,
   type User,
 } from "./api";
 import { PasswordForm, PasswordInput } from "./Account";
+import { useLiveState, type Sample } from "./useLiveState";
+import { UserLimitsFields } from "./UserLimitsFields";
+import { useUnsavedChanges } from "./useUnsavedChanges";
 
 type Page = "overview" | "users" | "subscriptions" | "access";
 const pages: { id: Page; title: string; icon: string }[] = [
@@ -164,6 +166,10 @@ export default function App() {
       initial={session.initial!}
       logout={logout}
       passwordChanged={passwordChanged}
+      expired={() => {
+        setSession(undefined);
+        setNotice("登录已过期，请重新登录。");
+      }}
     />
   );
 }
@@ -285,136 +291,75 @@ type ModalState =
       danger?: boolean;
     }
   | { type: "secret"; key: string };
-interface Sample {
-  at: number;
-  inbound: number;
-  delivered: number;
-}
+
 function Console({
   token,
   initial,
   logout,
   username,
   passwordChanged,
+  expired,
 }: {
   token: string;
   initial: Snapshot;
   logout: () => void;
   username: string;
   passwordChanged: () => void;
+  expired: () => void;
 }) {
-  const [data, setData] = useState(initial);
+  const { data, online, refreshing, lastSync, samples, refresh } = useLiveState(
+    token,
+    initial,
+    expired,
+  );
+  const [notice, setNotice] = useState("");
   const [page, setPage] = useState<Page>("overview");
   const [error, setError] = useState("");
-  const [online, setOnline] = useState(true);
-  const [lastSync, setLastSync] = useState(new Date());
   const [modal, setModal] = useState<ModalState>();
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
-  const [samples, setSamples] = useState<Sample[]>([]);
-  const previous = useRef({ at: Date.now(), metrics: initial.metrics });
   const alive = useRef(true);
-  const refreshSequence = useRef(0);
   const [accessGeneration, setAccessGeneration] = useState(0);
+  const [accessDirty, setAccessDirty] = useState(false);
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
     };
   }, []);
-  const refresh = useCallback(
-    async (signal?: AbortSignal) => {
-      const sequence = ++refreshSequence.current;
-      try {
-        const next = await request<Snapshot>(
-          token,
-          "/api/state",
-          "GET",
-          undefined,
-          signal,
-        );
-        if (
-          !alive.current ||
-          signal?.aborted ||
-          sequence !== refreshSequence.current
-        )
-          return;
-        const at = Date.now(),
-          elapsed = (at - previous.current.at) / 1000;
-        if (elapsed > 0.25)
-          setSamples((old) =>
-            [
-              ...old,
-              {
-                at,
-                inbound:
-                  Math.max(
-                    0,
-                    next.metrics.updates - previous.current.metrics.updates,
-                  ) / elapsed,
-                delivered:
-                  Math.max(
-                    0,
-                    next.metrics.delivered - previous.current.metrics.delivered,
-                  ) / elapsed,
-              },
-            ].slice(-30),
-          );
-        previous.current = { at, metrics: next.metrics };
-        setData(next);
-        setOnline(true);
-        setLastSync(new Date());
-      } catch (e) {
-        if (
-          !alive.current ||
-          signal?.aborted ||
-          sequence !== refreshSequence.current
-        )
-          return;
-        if (e instanceof ApiError && e.status === 401) logout();
-        else setOnline(false);
-      }
-    },
-    [token, logout],
-  );
-  const refreshRef = useRef(refresh);
-  refreshRef.current = refresh;
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      await refreshRef.current(controller.signal);
-      if (!controller.signal.aborted) timer = setTimeout(poll, 2000);
-    };
-    timer = setTimeout(poll, 2000);
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, []);
   async function mutate(path: string, method: string, payload?: unknown) {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
-      const result = await request<{ api_key?: string | null }>(
-        token,
-        path,
-        method,
-        payload,
-      );
+      const result = await request<{
+        api_key?: string | null;
+        changed?: boolean;
+      }>(token, path, method, payload);
       if (!alive.current) return;
       setModal(
         result.api_key ? { type: "secret", key: result.api_key } : undefined,
       );
-      await refresh();
-      if (path === "/api/access" && alive.current)
+      setNotice(
+        result.changed === false
+          ? "设置没有变化，现有订阅继续运行。"
+          : path.endsWith("/disconnect")
+            ? "订阅已断开。"
+            : "设置已保存并生效。",
+      );
+      const updated = await refresh(true);
+      if (updated && path === "/api/access" && alive.current)
         setAccessGeneration((n) => n + 1);
     } catch (e) {
       if (!alive.current) return;
-      if (e instanceof ApiError && e.status === 401) logout();
+      if (e instanceof ApiError && e.status === 401) expired();
       else {
-        setError(message(e));
-        if (e instanceof ApiError && e.status === 409) await refresh();
+        setError(
+          e instanceof ApiError
+            ? e.message
+            : "无法确认操作结果，请刷新核对后再重试。",
+        );
+        if (e instanceof ApiError && e.status === 409) await refresh(true);
       }
     } finally {
       if (alive.current) setBusy(false);
@@ -428,6 +373,23 @@ function Console({
   ) => {
     setError("");
     setModal({ type: "confirm", title, description, action, danger });
+  };
+  const leaveAccess = (action: () => void) => {
+    if (busy) return;
+    if (page === "access" && accessDirty) {
+      confirm(
+        "放弃未保存的访问策略？",
+        "离开后当前输入将丢失，服务仍使用已生效的策略。",
+        async () => {
+          setAccessDirty(false);
+          setModal(undefined);
+          action();
+        },
+      );
+    } else action();
+  };
+  const navigate = (next: Page) => {
+    if (next !== page) leaveAccess(() => setPage(next));
   };
   const add = () => {
     setError("");
@@ -451,10 +413,11 @@ function Console({
           {pages.map((item) => (
             <button
               key={item.id}
+              disabled={busy}
               className={page === item.id ? "active" : ""}
               aria-current={page === item.id ? "page" : undefined}
               onClick={() => {
-                setPage(item.id);
+                navigate(item.id);
                 setError("");
               }}
             >
@@ -497,6 +460,8 @@ function Console({
             <button
               className="icon-button"
               title="刷新数据"
+              disabled={refreshing}
+              aria-busy={refreshing}
               aria-label="刷新数据"
               onClick={() => void refresh()}
             >
@@ -509,7 +474,13 @@ function Console({
               className="icon-button"
               aria-label="修改密码"
               title="修改密码"
-              onClick={() => setModal({ type: "password" })}
+              disabled={busy}
+              onClick={() =>
+                leaveAccess(() => {
+                  if (page === "access") setAccessGeneration((n) => n + 1);
+                  setModal({ type: "password" });
+                })
+              }
             >
               <Icon name="key" />
             </button>
@@ -517,7 +488,8 @@ function Console({
               className="icon-button"
               title="退出登录"
               aria-label="退出登录"
-              onClick={logout}
+              disabled={busy}
+              onClick={() => leaveAccess(logout)}
             >
               <Icon name="logout" />
             </button>
@@ -546,6 +518,11 @@ function Console({
               </button>
             )}
           </div>
+          {notice && (
+            <div role="status" className="info-box">
+              {notice}
+            </div>
+          )}
           {!online && (
             <div role="alert" className="alert error">
               无法刷新服务状态，以下是最后一次成功获取的数据。连接恢复后会自动更新。
@@ -563,7 +540,7 @@ function Console({
                 API Key 验证未开启。白名单内的 IP 可直接订阅，额度按来源 IP
                 计算。
               </div>
-              <button onClick={() => setPage("access")}>
+              <button onClick={() => navigate("access")}>
                 管理策略 <Icon name="arrow" size={14} />
               </button>
             </div>
@@ -666,7 +643,7 @@ function Console({
                   </div>
                   <button
                     className="text-button"
-                    onClick={() => setPage("users")}
+                    onClick={() => navigate("users")}
                   >
                     查看全部 <Icon name="arrow" size={16} />
                   </button>
@@ -720,10 +697,13 @@ function Console({
                 </label>
               </div>
               <UserTable
+                key={search}
                 users={data.users.filter((u) =>
                   u.name.toLowerCase().includes(search.toLowerCase()),
                 )}
                 add={add}
+                query={search}
+                clearSearch={() => setSearch("")}
                 onEdit={(user) => {
                   setError("");
                   setModal({ type: "user", user, revision: data.revision });
@@ -852,6 +832,7 @@ function Console({
           {page === "access" && (
             <AccessPanel
               key={accessGeneration}
+              onDirtyChange={setAccessDirty}
               data={data}
               busy={busy}
               save={(revision, required, ips) =>
@@ -887,6 +868,23 @@ function Console({
       )}
       {modal?.type === "user" && (
         <UserDialog
+          key={modal.revision}
+          stale={modal.revision !== data.revision}
+          reload={() => {
+            const current =
+              modal.user &&
+              data.users.find((user) => user.name === modal.user!.name);
+            setError("");
+            if (modal.user && !current) {
+              setModal(undefined);
+              setNotice("此用户已被删除，请检查最新用户列表。");
+            } else
+              setModal({
+                type: "user",
+                user: current || undefined,
+                revision: data.revision,
+              });
+          }}
           user={modal.user}
           defaults={data.service}
           busy={busy}
@@ -1073,22 +1071,36 @@ function UserTable({
   onEdit,
   actions,
   add,
+  query = "",
+  clearSearch,
 }: {
   users: User[];
   onEdit: (user: User) => void;
   actions?: (user: User) => ReactNode;
   add: () => void;
+  query?: string;
+  clearSearch?: () => void;
 }) {
+  const [page, setPage] = useState(0);
+  const pageSize = 25;
+  const currentPage = Math.min(
+    page,
+    Math.max(0, Math.ceil(users.length / pageSize) - 1),
+  );
+  const offset = currentPage * pageSize;
   if (!users.length)
     return (
       <Empty
         icon="users"
-        title="这里还没有用户"
-        text="创建用户，为每个 Bot 分配独立 Key 和订阅额度。"
+        title={query ? "没有匹配的用户" : "这里还没有用户"}
+        text={
+          query
+            ? `没有找到包含“${query}”的用户名。`
+            : "创建用户，为每个 Bot 分配独立 Key 和订阅额度。"
+        }
       >
-        <button className="secondary" onClick={add}>
-          <Icon name="plus" size={16} />
-          添加用户
+        <button className="secondary" onClick={query ? clearSearch : add}>
+          {query ? "清空搜索" : "添加用户"}
         </button>
       </Empty>
     );
@@ -1106,7 +1118,7 @@ function UserTable({
           </tr>
         </thead>
         <tbody>
-          {users.map((user) => (
+          {users.slice(offset, offset + pageSize).map((user) => (
             <tr key={user.name}>
               <td>
                 <div className="user-cell">
@@ -1158,6 +1170,30 @@ function UserTable({
           ))}
         </tbody>
       </table>
+      {users.length > pageSize && (
+        <div className="list-pagination">
+          <span>
+            第 {offset + 1}–{Math.min(offset + pageSize, users.length)} 个，共{" "}
+            {users.length} 个用户
+          </span>
+          <div>
+            <button
+              className="secondary"
+              disabled={currentPage === 0}
+              onClick={() => setPage(currentPage - 1)}
+            >
+              上一页
+            </button>
+            <button
+              className="secondary"
+              disabled={offset + pageSize >= users.length}
+              onClick={() => setPage(currentPage + 1)}
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1165,10 +1201,12 @@ function Dialog({
   title,
   close,
   children,
+  dismissible = true,
 }: {
   title: string;
   close: () => void;
   children: ReactNode;
+  dismissible?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -1183,23 +1221,25 @@ function Dialog({
       aria-labelledby="dialog-title"
       onCancel={(e) => {
         e.preventDefault();
-        close();
+        if (dismissible) close();
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) close();
+        if (dismissible && e.target === e.currentTarget) close();
       }}
     >
       <div className="modal-inner">
         <div className="modal-heading">
           <h2 id="dialog-title">{title}</h2>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="关闭弹窗"
-            onClick={close}
-          >
-            <Icon name="close" />
-          </button>
+          {dismissible && (
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="关闭弹窗"
+              onClick={close}
+            >
+              <Icon name="close" />
+            </button>
+          )}
         </div>
         {children}
       </div>
@@ -1213,20 +1253,34 @@ function UserDialog({
   error,
   close,
   submit,
+  stale,
+  reload,
 }: {
+  stale: boolean;
+  reload: () => void;
   user?: User;
   defaults: Snapshot["service"];
   busy: boolean;
   error: string;
   close: () => void;
-  submit: (name: string, enabled: boolean, limits: Effective) => Promise<void>;
+  submit: (name: string, enabled: boolean, limits: Limits) => Promise<void>;
 }) {
   const [localError, setLocalError] = useState("");
-  const limits = user?.effective ?? {
-    max_subscriptions: defaults.max_subscriptions_per_key,
-    max_filters: defaults.max_filters_per_key,
-    max_accounts: defaults.max_accounts_per_key,
-    allow_accounts: defaults.allow_accounts,
+  const [dirty, setDirty] = useState(false);
+  const [discard, setDiscard] = useState(false);
+  const keepEditing = useRef<HTMLButtonElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (discard) keepEditing.current?.focus();
+    else previousFocus.current?.focus();
+  }, [discard]);
+  useUnsavedChanges(dirty);
+  const requestClose = () => {
+    if (busy) return;
+    if (dirty) {
+      previousFocus.current = document.activeElement as HTMLElement | null;
+      setDiscard(true);
+    } else close();
   };
   function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1243,59 +1297,59 @@ function UserDialog({
     }
   }
   return (
-    <Dialog title={user ? `编辑 ${user.name}` : "添加用户"} close={close}>
-      <p className="modal-description">
+    <Dialog
+      title={
+        discard
+          ? "放弃未保存的用户设置？"
+          : user
+            ? `编辑 ${user.name}`
+            : "添加用户"
+      }
+      close={requestClose}
+      dismissible={!discard}
+    >
+      {discard && (
+        <>
+          <p className="modal-description">
+            当前输入将丢失，服务仍使用已生效的设置。
+          </p>
+          <div className="modal-actions">
+            <button
+              ref={keepEditing}
+              className="secondary"
+              onClick={() => setDiscard(false)}
+            >
+              继续编辑
+            </button>
+            <button className="danger" onClick={close}>
+              放弃修改
+            </button>
+          </div>
+        </>
+      )}
+      <p className="modal-description" hidden={discard}>
         {user
-          ? "保存后该用户的现有订阅会断开，重新连接时应用新策略。"
+          ? "修改额度或启用状态会断开该用户的现有订阅，重连后应用新策略。相同设置不会中断订阅。"
           : "为用户生成独立的随机 API Key。Key 将在创建后显示一次。"}
       </p>
-      <form onSubmit={save}>
+      <form onSubmit={save} hidden={discard} onChange={() => setDirty(true)}>
         <label htmlFor="user-name">用户名</label>
         <input
           id="user-name"
           name="name"
           defaultValue={user?.name}
           readOnly={!!user}
+          disabled={busy}
           required
           maxLength={64}
           pattern={user ? undefined : "[A-Za-z0-9_.\\-]+"}
           placeholder="例如 trading-bot-01"
         />
-        <div className="form-grid">
-          {[
-            { key: "max_subscriptions", title: "最大并发订阅", max: 65536 },
-            { key: "max_filters", title: "过滤器总额度", max: 4096 },
-            { key: "max_accounts", title: "账户引用总额度", max: 65536 },
-          ].map((field) => (
-            <div key={field.key}>
-              <label htmlFor={field.key}>{field.title}</label>
-              <input
-                id={field.key}
-                name={field.key}
-                type="number"
-                min={1}
-                max={field.max}
-                step={1}
-                required
-                defaultValue={limits[field.key as keyof Effective] as number}
-              />
-            </div>
-          ))}
-        </div>
-        <p className="field-help">
-          过滤器和账户额度在该用户的所有订阅间累计；上游全局额度同时生效。
-        </p>
-        <label className="check-card">
-          <span>
-            <strong>允许账户更新</strong>
-            <small>账户更新可能产生大量流量，按用户需求开启。</small>
-          </span>
-          <input
-            type="checkbox"
-            name="allow_accounts"
-            defaultChecked={limits.allow_accounts}
-          />
-        </label>
+        <UserLimitsFields
+          limits={user?.limits}
+          defaults={defaults}
+          disabled={busy}
+        />
         {user ? (
           <label className="check-card">
             <span>
@@ -1306,6 +1360,7 @@ function UserDialog({
               type="checkbox"
               name="enabled"
               defaultChecked={user.enabled}
+              disabled={busy}
             />
           </label>
         ) : (
@@ -1316,16 +1371,32 @@ function UserDialog({
             {localError || error}
           </div>
         )}
+        {stale && (
+          <div className="alert warning">
+            配置已被修改，请载入最新配置后重新编辑。当前输入会被替换。
+            <button
+              className="text-button"
+              type="button"
+              disabled={busy}
+              onClick={reload}
+            >
+              载入最新配置
+            </button>
+          </div>
+        )}
         <div className="modal-actions">
           <button
             className="secondary"
             type="button"
             disabled={busy}
-            onClick={close}
+            onClick={requestClose}
           >
             取消
           </button>
-          <button className="primary" disabled={busy}>
+          <button
+            className="primary"
+            disabled={busy || stale || (!!user && !dirty)}
+          >
             {busy ? "正在保存…" : user ? "保存并应用" : "创建用户"}
           </button>
         </div>
@@ -1344,7 +1415,7 @@ function SecretDialog({
   const [visible, setVisible] = useState(false);
   const [copyError, setCopyError] = useState(false);
   return (
-    <Dialog title="保存用户 API Key" close={close}>
+    <Dialog title="保存用户 API Key" close={close} dismissible={false}>
       <div className="secret-icon">
         <Icon name="key" size={26} />
       </div>
@@ -1400,7 +1471,9 @@ function AccessPanel({
   data,
   busy,
   save,
+  onDirtyChange,
 }: {
+  onDirtyChange: (value: boolean) => void;
   data: Snapshot;
   busy: boolean;
   save: (revision: string, required: boolean, ips: string[]) => void;
@@ -1411,6 +1484,10 @@ function AccessPanel({
     ips: data.allowed_sources.join("\n"),
   });
   const [dirty, setDirty] = useState(false);
+  useUnsavedChanges(dirty);
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
   useEffect(() => {
     if (!dirty)
       setDraft({
@@ -1447,6 +1524,7 @@ function AccessPanel({
             <input
               type="checkbox"
               aria-label="要求用户 API Key"
+              disabled={busy}
               checked={draft.required}
               onChange={(e) => {
                 setDirty(true);
@@ -1457,6 +1535,7 @@ function AccessPanel({
           <label htmlFor="allowed-ips">IP 白名单</label>
           <textarea
             id="allowed-ips"
+            disabled={busy}
             value={draft.ips}
             onChange={(e) => {
               setDirty(true);
@@ -1483,6 +1562,7 @@ function AccessPanel({
             <button
               className="secondary"
               type="button"
+              disabled={busy}
               onClick={() => {
                 setDirty(false);
                 setDraft({

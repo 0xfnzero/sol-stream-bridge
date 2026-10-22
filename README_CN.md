@@ -8,11 +8,10 @@
 </div>
 
 <p align="center">
-  <a href="https://fnzero.dev">官网</a> ·
-  <a href="README.md">English</a> · <a href="README_CN.md">中文</a> ·
-  <a href="clients/README_CN.md">Bot 客户端</a> ·
-  <a href="docs/DEPLOYMENT_CN.md">部署说明</a> ·
-  <a href="RELEASE_NOTES.md">发布说明</a>
+    <a href="README.md">English</a> · <a href="README_CN.md">中文</a> ·
+    <a href="https://t.me/fnzero_group">Telegram</a> ·
+    <a href="https://discord.gg/vuazbGkqQE">Discord</a> ·
+    <a href="https://fnzero.dev/">Website</a>
 </p>
 
 **Sol Stream Bridge** 是使用 Rust 实现的 Solana Shred UDP 与 Yellowstone gRPC 转发桥。支持 Jito ShredStream proxy 的 UDP 输出、直接推送到 IP+端口的原始 Shred，以及 Yellowstone Geyser 订阅流。一个进程可同时转发 Shred 和 gRPC，也可分别启用；通过公网或互通私网连接，Rust、Go、TypeScript Bot 客户端直接接收原始数据包和解码后的消息。
@@ -21,10 +20,11 @@
 
 Go 保留已发布版本的原始 module 路径，安装和 import 按下方示例执行。
 
-当前版本：**[v0.1.1](https://github.com/0xfnzero/sol-stream-bridge/releases/tag/v0.1.1)**。服务端与三语言 Bot 客户端统一为 **0.1.1**，修复内容及升级说明见 [发布说明](RELEASE_NOTES.md)。
+当前版本：**[v0.2.0](https://github.com/0xfnzero/sol-stream-bridge/releases/tag/v0.2.0)**。服务端与三语言 Bot 客户端统一为 **0.2.0**，修复内容及升级说明见 [发布说明](RELEASE_NOTES.md)。
 
 ## 目录
 
+- [相关 SDK](#related-sdks)
 - [项目特性](#features)
 - [共享订阅与 API Key](#shared)
 - [React 管理面板](#dashboard)
@@ -34,7 +34,29 @@ Go 保留已发布版本的原始 module 路径，安装和 import 按下方示�
 - [Bot 客户端](#clients)
 - [运行边界](#behavior)
 - [项目结构与验证](#development)
-- [相关项目](#related)
+- [示例](examples/README_CN.md)
+- [文档](docs/README.md)
+
+<a id="related"></a>
+<a id="related-sdks"></a>
+
+## 相关 SDK
+
+各仓库版本独立，依赖兼容要求以对应 SDK 的安装说明为准。
+
+| 语言 | 仓库 | 用途 | 版本 |
+|----------|------------|-------------|---------|
+| Rust | [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk) | DEX 交易与账户事件解析 | `v0.9.1` |
+| Node.js | [sol-parser-sdk-nodejs](https://github.com/0xfnzero/sol-parser-sdk-nodejs) | DEX 交易与账户事件解析 | `v0.9.1` |
+| Python | [sol-parser-sdk-python](https://github.com/0xfnzero/sol-parser-sdk-python) | DEX 交易与账户事件解析 | `v0.9.1` |
+| Go | [sol-parser-sdk-golang](https://github.com/0xfnzero/sol-parser-sdk-golang) | DEX 交易与账户事件解析 | `v0.9.1` |
+| Rust | [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk) | 交易构建、签名与多通道提交 | `v9.0.1` |
+| Node.js | [sol-trade-sdk-nodejs](https://github.com/0xfnzero/sol-trade-sdk-nodejs) | 交易构建、签名与多通道提交 | `v9.0.1` |
+| Python | [sol-trade-sdk-python](https://github.com/0xfnzero/sol-trade-sdk-python) | 交易构建、签名与多通道提交 | `v9.0.1` |
+| Go | [sol-trade-sdk-golang](https://github.com/0xfnzero/sol-trade-sdk-golang) | 交易构建、签名与多通道提交 | `v9.0.1` |
+| Rust | [sol-shred-sdk](https://github.com/0xfnzero/sol-shred-sdk) | 原始 Shred 解码与 ShredStream 指令事件 | `v6.0.1` |
+| Rust | [solana-streamer](https://github.com/0xfnzero/solana-streamer) | gRPC / ShredStream 订阅与事件流封装 | `v5.0.0` |
+| Rust | [sol-trade-router-sdk](https://github.com/0xfnzero/sol-trade-router-sdk) | 链上多跳 Router 与客户端 SDK | `v0.3.0` |
 
 <a id="features"></a>
 ## 项目特性
@@ -49,9 +71,9 @@ Go 保留已发布版本的原始 module 路径，安装和 import 按下方示�
 8. **脚本运维**：预编译安装包、SHA256 校验、配置保留升级、systemd 启动、统计日志和连接限制。
 
 <a id="shared"></a>
-## 共享订阅与 API Key（尚未发布）
+## 共享订阅与 API Key
 
-`main` 源码新增 **一个上游订阅服务多个用户**、可选 API Key（`x-token` 或 `x-api-key`）、IP 验证、按用户额度和账户更新权限。**已发布的 v0.1.1 不包含这些功能**；当前需源码构建，详见 [完整配置与运行说明](docs/SHARED_CN.md)。
+v0.2.0 新增 **一个上游订阅服务多个用户**、可选 API Key（`x-token` 或 `x-api-key`）、IP 验证、按用户额度和账户更新权限。可直接安装 Release 包或从源码构建，详见 [完整配置与运行说明](docs/SHARED_CN.md)。
 
 在接收端 B 的配置中增加以下字段，保留已有隧道配置：
 
@@ -83,11 +105,11 @@ Bot 携带 Alice 的 Key，供应商凭据只保存在 B。Key 与 IP 白名单�
 供应商严格限一条连接时，也在发送端 A 设置 `[grpc] max_connections = 1`，限制断开/重连过程中的上游连接数量。可信内网使用 `http://IP:端口`，客户端 TLS 可选，与隧道/供应商 TLS 独立。完整示例见 [config.shared-receiver.toml](config.shared-receiver.toml)。省略 `[grpc.shared]` 保持 TCP 透传；共享模式支持 Subscribe/Ping/GetVersion、固定 commitment，暂不支持其他 RPC、回放和账户切片。
 
 <a id="dashboard"></a>
-## React 管理面板（尚未发布）
+## React 管理面板
 
-`main` 新增供转发服务运营者使用的 React + TypeScript Dashboard：实时连接与分发统计、用户 API Key 创建/轮换/停用、订阅与账户额度、账户更新权限、IP 白名单、指定订阅断开。策略即时应用并持久化，多个管理员编辑通过版本校验防止覆盖。
+v0.2.0 新增供转发服务运营者使用的 React + TypeScript Dashboard：实时连接与分发统计、用户 API Key 创建/轮换/停用、订阅与账户额度、账户更新权限、IP 白名单、指定订阅断开。策略即时应用并持久化，多个管理员编辑通过版本校验防止覆盖。
 
-在共享 gRPC 接收端执行 `./setup-dashboard.sh`，按提示启用 `[grpc.shared.dashboard]` 后启动服务。默认入口 `http://127.0.0.1:8080`，远程通过 SSH 隧道访问。Shred 路由和全局上游参数仍用 TOML 管理。**v0.1.1 安装包不包含本功能**；源码启动、登录、备份和生效规则见 [管理面板说明](docs/DASHBOARD_CN.md)。
+在共享 gRPC 接收端执行 `./setup-dashboard.sh`，按提示启用 `[grpc.shared.dashboard]` 后启动服务。默认入口 `http://127.0.0.1:8080`，远程通过 SSH 隧道访问。Shred 路由和全局上游参数仍用 TOML 管理。Linux 安装包已包含构建好的页面，运行无需 Node.js。启动、登录、备份和生效规则见 [管理面板说明](docs/DASHBOARD_CN.md)。
 
 初始化成功后，终端仅显示一次 9 位随机账号和初始密码。登录页支持密码显隐，首次登录强制改密；之后修改密码需验证当前密码，并撤销全部面板会话，不影响 Bot 密钥与转发连接。当前密码使用 Argon2id 哈希保存。
 
@@ -115,12 +137,12 @@ ROLE=source ./install.sh
 cd "$HOME/stream-bridge"
 ```
 
-可选角色：`source`、`receiver`、`shred-only`、`private-source`、`private-receiver`。接收端初始化需要 `openssl`：`receiver` 生成令牌和 TLS 证书，`private-receiver` 只生成令牌。脚本只安装并准备文件，完成地址和凭据配置后再启动。
+可选角色：`source`、`receiver`、`shared-receiver`、`shred-only`、`private-source`、`private-receiver`。接收端初始化需要 `openssl`：`receiver` / `shared-receiver` 生成令牌和 TLS 证书，`private-receiver` 只生成令牌。脚本只安装并准备文件，完成地址和凭据配置后再启动。
 
 指定版本或目录：
 
 ```bash
-VERSION=v0.1.1 ROLE=source INSTALL_DIR=/opt/stream-bridge ./install.sh
+VERSION=v0.2.0 ROLE=source INSTALL_DIR=/opt/stream-bridge ./install.sh
 ```
 
 目录需对当前用户可写。安装脚本拒绝覆盖非本工具管理的目录；升级保留根目录 TOML（含面板状态和密码哈希）、`.bridge-token`、`.dashboard-initial-credentials`、旧 `.dashboard-token` 和 `certs/`，旧安装保留为 `.backup.*`，便于回滚。升级后需重启进程。备份包含凭据，应与安装目录一样保管。
@@ -204,11 +226,11 @@ A/B 使用 `ROLE=private-source` 与 `ROLE=private-receiver` 安装，替换模�
 
 ```bash
 # Rust：同时接收 Shred 和结构化 Yellowstone 消息
-cargo add stream-bridge-client@0.1.1 --features yellowstone
+cargo add stream-bridge-client@0.2.0 --features yellowstone
 # Go
-go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.1
+go get github.com/0xfnzero/stream-bridge/clients/go@v0.2.0
 # Node.js / TypeScript
-npm install stream-bridge-client@0.1.1
+npm install stream-bridge-client@0.2.0
 ```
 
 可运行示例、数据类型与集成代码见 [三语言客户端说明](clients/README_CN.md)。源码中的三个独立接收示例共用 `clients/client.toml`：
@@ -224,7 +246,7 @@ cargo run --locked --example receive --features yellowstone -- clients/client.to
 (cd clients/typescript && npm ci && npm run receive -- ../client.toml)
 ```
 
-Rust 支持将桥接接收端嵌入 Bot；Go/TS 客户端连接已运行的 Rust 接收端。Bot 得到 Shred 原始字节、来源与接收时间，以及 Yellowstone 结构化交易/账户/slot 等消息。npm 包还提供可直接运行的接收命令：`npx stream-bridge-client@0.1.1 /path/to/client.toml`。SDK 在 Bot 进程内接收数据，桥接服务单独安装。
+Rust 支持将桥接接收端嵌入 Bot；Go/TS 客户端连接已运行的 Rust 接收端。Bot 得到 Shred 原始字节、来源与接收时间，以及 Yellowstone 结构化交易/账户/slot 等消息。npm 包还提供可直接运行的接收命令：`npx stream-bridge-client@0.2.0 /path/to/client.toml`。SDK 在 Bot 进程内接收数据，桥接服务单独安装。
 
 <a id="behavior"></a>
 ## 运行边界
@@ -257,11 +279,3 @@ python3 -m unittest discover -s tests -p 'test_install.py'
 ```
 
 端到端测试使用本地模拟 Yellowstone 和实际 source/receiver，验证三语言均收到 Shred、slot、transaction，并正常退出；生产数据源需单独配置验证。
-
-<a id="related"></a>
-## 相关项目
-
-- [sol-trade-sdk](https://github.com/0xfnzero/sol-trade-sdk)：Solana DEX 交易构建与提交。
-- [sol-parser-sdk](https://github.com/0xfnzero/sol-parser-sdk)：交易及账户事件解析。
-- [sol-shred-sdk](https://github.com/0xfnzero/sol-shred-sdk)：原始 Shred 解码。
-- [grpc-benchmark](https://github.com/0xfnzero/grpc-benchmark)：gRPC / Shred 延迟测速。

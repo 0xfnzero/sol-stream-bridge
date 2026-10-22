@@ -2,11 +2,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 1; }
-if [[ ! -f dashboard/dist/index.html ]]; then
-  [[ -f dashboard/package-lock.json ]] || { echo "Dashboard assets missing; reinstall the release package" >&2; exit 1; }
+# Source checkouts must rebuild after upgrades; release packages contain only dist.
+if [[ -f dashboard/package-lock.json ]]; then
   command -v npm >/dev/null || { echo "Source builds need Node.js >=22.12 and npm" >&2; exit 1; }
   (cd dashboard && npm ci --no-audit --no-fund && npm run build)
 fi
+[[ -f dashboard/dist/index.html ]] || { echo "Dashboard assets missing; reinstall the release package or rebuild from source" >&2; exit 1; }
 # Credentials are plain data, never shell code. Preserve them across reruns.
 [[ ! -L .dashboard-initial-credentials ]] || { echo "Refusing symlink .dashboard-initial-credentials" >&2; exit 1; }
 umask 077

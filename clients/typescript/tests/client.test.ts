@@ -61,6 +61,32 @@ test("UDP allowlist rejects other sources", {timeout:5000}, async () => {
     assert.equal((await pending).done,true);
   } finally {receiver.close();sender.close();}
 });
+test("UDP ring wraps in FIFO order, drops newest and drains accepted packets on close", {timeout:5000}, async () => {
+  const receiver = await ShredReceiver.bind({listen:"127.0.0.1:0", channel_capacity:3});
+  const sender = dgram.createSocket("udp4");
+  const expected: number[] = [];
+  let sequence = 0;
+  try {
+    for (let round = 0; round < 8; round++) {
+      while (expected.length < 3) {
+        const value = sequence++;
+        expected.push(value);
+        sender.send(Buffer.from([value]), receiver.localAddress().port, "127.0.0.1");
+      }
+      sender.send(Buffer.from([255]), receiver.localAddress().port, "127.0.0.1");
+      // Observing the overflow confirms the entire ordered local burst was received.
+      for (let i = 0; i < 100 && receiver.droppedPackets <= round; i++) await sleep(5);
+      assert.equal(receiver.droppedPackets, round + 1);
+      for (let i = 0; i < 2; i++) {
+        assert.equal((await receiver.next()).value?.data[0], expected.shift());
+      }
+    }
+    receiver.close();
+    assert.equal((await receiver.next()).value?.data[0], expected.shift());
+    assert.equal((await receiver.next()).done, true);
+    assert.equal((await receiver.next()).done, true);
+  } finally { receiver.close(); sender.close(); }
+});
 test("Yellowstone preserves HTTP/HTTPS ports for DNS, IPv4 and IPv6 endpoints", async t => {
   const stop = new Error("stop before opening a network connection");
   let target = "";

@@ -11,11 +11,11 @@
 
 Shred 是原始数据，不是交易对象；Bot 需要将字节包交给自己的 shred 重组/解析器。交易消息可直接从 Yellowstone 的 transaction 字段获取。客户端不会执行交易或调用交易策略，示例标注了接入策略的位置。
 
-## 共享模式用户 Key（main，尚未发布）
+## 共享模式用户 Key
 
-已发布的 **0.1.1** 包没有新增的 `api_key` 参数。使用本地源码依赖可调用新 API；已有 `x-token` API 也可以直接传入**桥接用户的 Key**连接共享接收端。供应商 Token 只配置在 B，不放进 Bot。详见 [服务端配置与额度](../docs/SHARED_CN.md)。
+**0.2.0** 包已支持可选的 `api_key` 参数，也可以通过已有 `x-token` API 直接传入**桥接用户的 Key**连接共享接收端。供应商 Token 只配置在 B，不放进 Bot。详见 [服务端配置与额度](../docs/SHARED_CN.md)。
 
-三语言源码示例都支持：
+三语言客户端示例都支持：
 
 ```toml
 [yellowstone]
@@ -27,7 +27,7 @@ transaction_accounts = []
 
 指定但不存在的环境变量会在连接前报错，环境变量值为空则不发送 Key。也可用 `x_token_env` 保存同一个桥接用户 Key；两种头同时发送时值必须相同。
 
-Bot 集成源码 SDK：
+Bot 集成 SDK：
 
 - Rust：`YellowstoneSubscription::connect_with_api_key(endpoint, None, tls, Some(user_key), request).await?`，随后 `next_update().await?` 读取结构化消息。
 - Go：在 `bridge.YellowstoneConfig` 设置 `APIKey` 或 `APIKeyEnv`，调用 `Subscribe` 后通过 `Recv()` 获取消息。
@@ -91,7 +91,7 @@ node dist/examples/receive.js ../client.toml
 
 ## 集成到 Rust Bot
 
-通过 crates.io 添加 `stream-bridge-client = { version = "0.1.1", features = ["yellowstone"] }`。也可在 Bot 的 Cargo.toml 中加入本地依赖（将路径换成实际位置）：
+通过 crates.io 添加 `stream-bridge-client = { version = "0.2.0", features = ["yellowstone"] }`。也可在 Bot 的 Cargo.toml 中加入本地依赖（将路径换成实际位置）：
 
 ```toml
 [dependencies]
@@ -127,7 +127,7 @@ ShredReceiver 绑定完成后才返回，便于发现端口冲突。Drop 会停�
 
 ## 集成到 Go Bot
 
-安装 Go 版本执行 `go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.1`。本地开发可添加替换（调整绝对路径）：
+安装 Go 版本执行 `go get github.com/0xfnzero/stream-bridge/clients/go@v0.2.0`。本地开发可添加替换（调整绝对路径）：
 
 ```bash
 go mod edit -replace=github.com/0xfnzero/stream-bridge/clients/go=/absolute/path/github.com/0xfnzero/stream-bridge/clients/go
@@ -197,7 +197,7 @@ try {
 
 使用 `parseClientConfig(parsedTomlOrJson)` 校验外部配置；未知字段、错误类型和无效 IP 会被拒绝。SDK 的 `bind`/`connect` 也执行校验，避免白名单拼写错误变为放行所有来源。
 
-`grpc.updateFilters(SubscribeRequest)` 支持替换完整过滤器。接口支持 `for await` 或直接调用 `next()`，同一实例只应有一个读者。64 位 slot/金额等 protobuf 整数保留为字符串，不要直接转换成 JavaScript Number 后计算。npm 包已发布，可使用 `npm install stream-bridge-client@0.1.1`。
+`grpc.updateFilters(SubscribeRequest)` 支持替换完整过滤器。接口支持 `for await` 或直接调用 `next()`，同一实例只应有一个读者。64 位 slot/金额等 protobuf 整数保留为字符串，不要直接转换成 JavaScript Number 后计算。npm 包已发布，可使用 `npm install stream-bridge-client@0.2.0`。
 
 ## 背压、断线和 TLS
 

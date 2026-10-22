@@ -8,7 +8,7 @@ channel_capacity = 4096
 
 [yellowstone]
 endpoint = "http://127.0.0.1:10000"
-# 共享模式（main，尚未发布）：用户 API Key，空值不发送认证头。
+# 共享模式（v0.2.0+）：用户 API Key，空值不发送认证头。
 # api_key = ""
 # api_key_env = "BRIDGE_API_KEY" # 与非空 api_key 二选一
 # 也可用 x_token_env 传同一个用户 Key；不要传上游供应商的 Token。

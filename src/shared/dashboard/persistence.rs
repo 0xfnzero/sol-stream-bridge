@@ -73,10 +73,14 @@ impl Writer {
         })
     }
 }
-pub fn save(path: &Path, expected: Option<[u8; 32]>, contents: &str) -> Result<[u8; 32]> {
+pub fn verify(path: &Path, expected: Option<[u8; 32]>) -> Result<()> {
     if fingerprint(&bytes(path)?) != expected {
         bail!("dashboard state changed outside this process; restart before editing");
     }
+    Ok(())
+}
+pub fn save(path: &Path, expected: Option<[u8; 32]>, contents: &str) -> Result<[u8; 32]> {
+    verify(path, expected)?;
     if contents.len() as u64 > MAX_STATE_BYTES {
         bail!("dashboard state exceeds 1 MiB");
     }

@@ -326,6 +326,7 @@ async fn apply_change(
         ));
     }
     let mut key = None;
+    let mut changed = true;
     match action {
         Change::Create(name, limits) => {
             if !name_valid(&name) || candidate.users.contains_key(&name) {
@@ -353,6 +354,7 @@ async fn apply_change(
                     "Rotate this user's key before enabling it.",
                 ));
             }
+            changed = user.enabled != enabled || user.limits != limits;
             user.enabled = enabled;
             user.limits = limits;
         }
@@ -371,9 +373,21 @@ async fn apply_change(
             }
         }
         Change::Access(required, ips) => {
+            changed = candidate.require_api_key != required || candidate.allowed_sources != ips;
             candidate.require_api_key = required;
             candidate.allowed_sources = ips;
         }
+    }
+    if !changed && writer.expected.is_some() {
+        // An unchanged request still checks external file edits, but does not rewrite
+        // the file, advance its revision, rebuild authentication or interrupt streams.
+        let (path, fingerprint) = (writer.path.clone(), writer.expected);
+        tokio::task::spawn_blocking(move || persistence::verify(&path, fingerprint))
+            .await.map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "Could not verify settings."))?
+            .map_err(|_| ApiError(StatusCode::CONFLICT, "Settings file changed or is inaccessible. Check permissions and external edits."))?;
+        return Ok(Json(
+            json!({"revision":candidate.revision.to_string(),"api_key":null,"changed":false}),
+        ));
     }
     candidate.revision = candidate.revision.checked_add(1).ok_or_else(invalid)?;
     candidate.validate(&cfg).map_err(|_| invalid())?;
@@ -390,7 +404,7 @@ async fn apply_change(
         "administrator updated access settings"
     );
     Ok(Json(
-        json!({"revision":candidate.revision.to_string(), "api_key":key}),
+        json!({"revision":candidate.revision.to_string(), "api_key":key, "changed":true}),
     ))
 }
 async fn create(State(admin): State<Admin>, Json(input): Json<NewUser>) -> ApiResult {

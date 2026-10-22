@@ -1,6 +1,6 @@
 # Deployment reference
 
-> This reference describes default TCP passthrough. For unreleased shared subscriptions, user API Keys, quotas and independent client/provider TLS, see [shared mode / 共享模式](SHARED.md).
+> This reference describes default TCP passthrough. For v0.2.0 shared subscriptions, user API Keys, quotas and independent client/provider TLS, see [shared mode / 共享模式](SHARED.md).
 
 [English](DEPLOYMENT.md) · [中文](DEPLOYMENT_CN.md)
 

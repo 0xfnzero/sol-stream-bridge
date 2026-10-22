@@ -17,6 +17,7 @@ pub struct SharedConfig {
     pub commitment: String,
     pub max_subscriptions: usize,
     pub max_subscriptions_per_key: usize,
+    pub max_subscription_changes_per_second: usize,
     pub max_filters_per_key: usize,
     pub max_accounts_per_key: usize,
     pub max_filters: usize,
@@ -44,6 +45,15 @@ pub struct UserLimits {
     pub max_accounts: Option<usize>,
     pub allow_accounts: Option<bool>,
 }
+/// Only the effective per-user limits; resolving them never clones the user map.
+pub struct ResolvedLimits {
+    pub max_subscriptions: usize,
+    pub max_filters_per_client: usize,
+    pub max_accounts_per_client: usize,
+    pub max_filters_per_key: usize,
+    pub max_accounts_per_key: usize,
+    pub allow_accounts: bool,
+}
 impl Default for SharedConfig {
     fn default() -> Self {
         Self {
@@ -56,6 +66,7 @@ impl Default for SharedConfig {
             commitment: "processed".into(),
             max_subscriptions: 64,
             max_subscriptions_per_key: 2,
+            max_subscription_changes_per_second: 10,
             max_filters_per_key: 16,
             max_accounts_per_key: 256,
             max_filters: 64,
@@ -78,26 +89,22 @@ impl Default for SharedConfig {
     }
 }
 impl SharedConfig {
-    pub fn for_user(&self, name: &str) -> Self {
-        let mut result = self.clone();
-        if let Some(user) = self.users.get(name) {
-            if let Some(value) = user.max_subscriptions {
-                result.max_subscriptions_per_key = value;
-            }
-            if let Some(value) = user.max_filters {
-                result.max_filters_per_client = value;
-                result.max_filters_per_key = value;
-            }
-            if let Some(value) = user.max_accounts {
-                result.max_accounts_per_client = value;
-                result.max_accounts_per_key = value;
-            }
-            if let Some(value) = user.allow_accounts {
-                result.allow_accounts = value;
-            }
+    pub fn for_user(&self, name: &str) -> ResolvedLimits {
+        let user = self.users.get(name);
+        let filters = user.and_then(|u| u.max_filters);
+        let accounts = user.and_then(|u| u.max_accounts);
+        ResolvedLimits {
+            max_subscriptions: user
+                .and_then(|u| u.max_subscriptions)
+                .unwrap_or(self.max_subscriptions_per_key),
+            max_filters_per_client: filters.unwrap_or(self.max_filters_per_client),
+            max_accounts_per_client: accounts.unwrap_or(self.max_accounts_per_client),
+            max_filters_per_key: filters.unwrap_or(self.max_filters_per_key),
+            max_accounts_per_key: accounts.unwrap_or(self.max_accounts_per_key),
+            allow_accounts: user
+                .and_then(|u| u.allow_accounts)
+                .unwrap_or(self.allow_accounts),
         }
-        result.users.clear();
-        result
     }
     pub fn commitment_level(&self) -> Result<i32> {
         Ok(match self.commitment.as_str() {
@@ -129,6 +136,7 @@ impl SharedConfig {
         for (value, cap) in [
             (self.max_subscriptions, 65536),
             (self.max_subscriptions_per_key, 65536),
+            (self.max_subscription_changes_per_second, 1000),
             (self.max_filters, 4096),
             (self.max_filters_per_key, 65536),
             (self.max_accounts_per_key, 65536),
@@ -158,8 +166,17 @@ impl SharedConfig {
                 "metrics_listen must use a nonzero loopback port"
             );
         }
-        for name in self.users.keys() {
-            self.for_user(name).validate()?;
+        for user in self.users.values() {
+            for (value, cap) in [
+                (user.max_subscriptions, 65536),
+                (user.max_filters, 4096),
+                (user.max_accounts, 65536),
+            ] {
+                ensure!(
+                    value.is_none_or(|v| v > 0 && v <= cap),
+                    "invalid shared user limit"
+                );
+            }
         }
         Ok(())
     }

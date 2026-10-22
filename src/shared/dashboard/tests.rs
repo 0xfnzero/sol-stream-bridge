@@ -360,7 +360,7 @@ async fn pending_grpc_admission_cannot_use_revoked_key() {
     let cfg = SharedConfig::default();
     let service = Service {
         hub: f.admin.hub.clone(),
-        cfg: cfg.clone(),
+        cfg: Arc::new(cfg.clone()),
         metrics: f.admin.metrics.clone(),
         queue_bytes: Arc::new(Semaphore::new(cfg.total_queue_bytes)),
         initial_timeout: Duration::from_secs(3),
@@ -401,6 +401,69 @@ async fn pending_grpc_admission_cannot_use_revoked_key() {
     );
     assert_eq!(f.admin.metrics.subscriptions.load(Ordering::Relaxed), 0);
     server.abort();
+}
+
+#[tokio::test]
+async fn unchanged_saves_preserve_inheritance_streams_revision_and_disk_state() {
+    let f = Fixture::new();
+    let cfg = SharedConfig::default();
+    let mailbox = Mailbox::new(&cfg, Arc::new(Semaphore::new(cfg.total_queue_bytes)));
+    f.admin
+        .hub
+        .lock()
+        .unwrap()
+        .register("alice".into(), subscribe_request(), mailbox.clone())
+        .unwrap();
+    // The first save must establish durable state even when the values match TOML.
+    let edit = json!({"revision":"0","enabled":true,"limits":{}});
+    let (code, saved) = f.call("PUT", "/api/users/alice", edit.clone()).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(saved["changed"], true);
+    assert_eq!(saved["revision"], "1");
+    let path = f.admin.writer.lock().await.path.clone();
+    let bytes = std::fs::read(&path).unwrap();
+    for (route, body) in [
+        (
+            "/api/users/alice",
+            json!({"revision":"1","enabled":true,"limits":{}}),
+        ),
+        (
+            "/api/access",
+            json!({"revision":"1","require_api_key":true,"allowed_sources":["127.0.0.1"]}),
+        ),
+    ] {
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let (code, result) = f.call("PUT", route, body.clone()).await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(
+            result,
+            json!({"revision":"1","api_key":null,"changed":false})
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            modified
+        );
+        assert!(!*mailbox.closed.borrow());
+        assert_eq!(f.authenticate("alice-test-key").unwrap(), "alice");
+        // No-op requests must not bypass the external-file check.
+        std::fs::write(&path, b"external edit").unwrap();
+        assert_eq!(f.call("PUT", route, body).await.0, StatusCode::CONFLICT);
+        std::fs::write(&path, &bytes).unwrap();
+    }
+    assert_eq!(
+        f.call("PUT", "/api/users/alice", edit).await.0,
+        StatusCode::CONFLICT
+    );
+    let hub = f.admin.hub.lock().unwrap();
+    assert_eq!(hub.access.state.revision, 1);
+    assert_eq!(hub.access.state.users["alice"].limits, Default::default());
+    let limits = hub.cfg.for_user("alice");
+    assert_eq!(limits.max_filters_per_client, 8);
+    assert_eq!(limits.max_filters_per_key, 16);
+    assert_eq!(limits.max_accounts_per_client, 128);
+    assert_eq!(limits.max_accounts_per_key, 256);
+    assert!(!*mailbox.closed.borrow());
 }
 
 #[tokio::test]

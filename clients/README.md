@@ -4,11 +4,11 @@
 
 Rust, Go and TypeScript clients expose raw Shred packets and decoded Yellowstone `SubscribeUpdate` messages. They support complete subscription filters, filter replacement and automatic server-ping replies. Read [release notes](../RELEASE_NOTES.md) for package versions. Rust and npm clients are published as `stream-bridge-client`.
 
-## Shared-mode user keys (unreleased/main)
+## Shared-mode user keys
 
-Published **0.1.1** packages do not have the new `api_key` option. Use a local source dependency for this API, or use the existing `x-token` API with your **bridge user key** to access a shared receiver. The upstream provider token belongs on receiver B, not in the Bot. See [server configuration and limits](../docs/SHARED.md).
+Version **0.2.0** packages support the optional `api_key` API. Use it or the existing `x-token` API with your **bridge user key** to access a shared receiver. The upstream provider token belongs on receiver B, not in the Bot. See [server configuration and limits](../docs/SHARED.md).
 
-All three source examples accept:
+All three client examples accept:
 
 ```toml
 [yellowstone]
@@ -20,7 +20,7 @@ transaction_accounts = []
 
 Use `api_key` or `api_key_env`; a missing named environment variable fails before connection. An empty environment value sends no header. The server still requires a valid key if key verification is enabled. Alternatively `x_token_env` can contain the same bridge user key; if both headers are sent their values must agree.
 
-Bot integration with source clients:
+Bot integration:
 
 ```rust,ignore
 let mut sub = YellowstoneSubscription::connect_with_api_key(
@@ -80,7 +80,7 @@ Install from crates.io:
 
 ```toml
 [dependencies]
-stream-bridge-client = { version = "0.1.1", features = ["yellowstone"] }
+stream-bridge-client = { version = "0.2.0", features = ["yellowstone"] }
 ```
 
 For local development use `path = "../stream-bridge/clients/rust"` instead of `version`. Main APIs:
@@ -101,7 +101,7 @@ Only raw Shred is needed? Omit the optional `yellowstone` feature. The regular b
 Go 1.24+. Install the versioned Go module:
 
 ```bash
-go get github.com/0xfnzero/stream-bridge/clients/go@v0.1.1
+go get github.com/0xfnzero/stream-bridge/clients/go@v0.2.0
 ```
 
 ```go
@@ -123,14 +123,14 @@ defer sub.Close()
 
 Select over `shreds.Packets`, `shreds.Errors` and `ctx.Done()`. `packet.Data` is the original payload. In one separate goroutine call `sub.Recv()` to get protobuf updates; `GetTransaction()`, `GetAccount()`, `GetSlot()` expose data. `UpdateFilters(*proto.SubscribeRequest)` supports full native filters and serializes sends. Cancel context or call Close to stop. Full example: [receive/main.go](go/examples/receive/main.go).
 
-For local development use a Go `replace` directive pointing `github.com/0xfnzero/stream-bridge/clients/go` at the local `clients/go` directory. Go publication uses a Git tag (`clients/go/v0.1.1`), not an npm-style package upload.
+For local development use a Go `replace` directive pointing `github.com/0xfnzero/stream-bridge/clients/go` at the local `clients/go` directory. Go publication uses a Git tag (`clients/go/v0.2.0`), not an npm-style package upload.
 
 ## TypeScript integration
 
 Node.js 20+:
 
 ```bash
-npm install stream-bridge-client@0.1.1
+npm install stream-bridge-client@0.2.0
 ```
 
 For local development, build `clients/typescript` with `npm ci && npm run build`, then run `npm install /absolute/path/stream-bridge/clients/typescript` in your Bot project.

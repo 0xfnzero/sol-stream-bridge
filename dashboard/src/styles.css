@@ -891,6 +891,13 @@ td code {
   border-top: 1px solid #edf1e8;
   margin-top: 20px;
 }
+.modal .modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: white;
+  padding-bottom: 12px;
+}
 .form-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1227,4 +1234,37 @@ td code {
   color: #176a50;
   min-height: 40px;
   padding: 8px;
+}
+.list-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid #edf1ee;
+  font-size: 13px;
+}
+.list-pagination > div {
+  display: flex;
+  gap: 8px;
+}
+.inherit-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #52685b;
+  margin: 8px 0 14px;
+}
+.inherit-option input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+}
+input:disabled {
+  color: #65756b;
+  background: #f3f6f3;
 }
